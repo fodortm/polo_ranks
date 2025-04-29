@@ -1,0 +1,271 @@
+Brother Rice 13 St Patrick 3
+
+Curie 20 Brooks 4
+
+Elk Grove 21 Wheeling 14
+
+Fenwick 10 St Rita 7
+
+Hersey 10 Libertyville 9 (OT)
+
+Jones-Payton 10 Northside 9
+
+Kenwood 17 Prosser 7
+
+Kennedy 9 Amundsen 8
+
+Lindblom 14 Julian 1
+
+LWC 13 H-F 6
+
+LWW 13 H-F 7
+
+LWW 15 LWC 13
+
+York 20 Oak Park 2
+
+Elk Grove 14 Maine East 8
+
+GBN 18 Lake Forest 6
+
+Lane 10 Northside 1
+
+LWW 17 Bremen 4
+
+Metea 17 LWC 8
+
+Neuqua 15 Barrington 13
+
+Senn 21 Little Village 1
+
+Waubonsie 12 Lockport 8
+
+Whitney Young 18 Taft 11
+
+Barrington 23 Elk Grove 1
+
+Curie 16 Julian 1
+
+Deerfield 18 Warren 16
+
+Fenwick 18 St Patrick 4
+
+Fremd 17 Prospect 9
+
+Hersey 14 Conant 6
+
+Hoffman 16 Meadows 12
+
+Jones-Payton 13 Westinghouse 6
+
+Lane 11 Von 7
+
+Lindblom 14 Solorio 4
+
+McHenry 7 VH 6
+
+Mt Carmel 20 St Ignatius 16
+
+Prosser 3 Chicago Ag 0
+
+Schaumburg 7 BG 4
+
+Shepard 5 Stagg 0
+
+St Rita 9 Loyola 7
+
+York 20 Morton 2
+
+Elk Grove 19 Leyden 9
+
+Kennedy 15 Senn 7
+
+LWW 9 Metea 8
+
+NN 14 New Trier 6
+
+NN 16 York 10
+
+Schaumburg 16 Lockport 8
+
+Stevenson 17 Conant 6
+
+STC 8 Maine South 5
+
+Waubonsie 17 Sandburg 5
+
+Westinghouse 18 Little Village 0
+
+Whitney Young 21 Curie 8
+
+York 10 New Trier 8
+
+McHenry 8 Elk Grove 4
+
+BG 15 Deerfield 9
+
+Warren 11 Lake Forest 7
+
+Maine West 8 Libertyville 7
+
+Deerfield 16 Warren 6
+
+Libertyville 8 McHenry 2
+
+BG 13 Lake Forest 3
+
+Maine West 13 Elk Grove 5
+
+Palatine 8 St Rita 5
+
+Oak Park 10 Waubonsie 9
+
+Fenwick 13 Andrew 7
+
+St Rita 6 Loyola 3
+
+Waubonsie 17 St Ignatius 8
+
+Fenwick 14 Mundelein 4
+
+Kenwood 11 Amundsen 6
+
+Taft 12 Solorio 4
+
+Solorio 11 Amundsen 6
+
+Kenwood 9 Taft 8
+
+Bradley 8 Shepard 7
+
+Shepard d. R-B
+
+Bradley d. R-B
+
+Niles West 11 LWC 12
+
+Niles West 11 H-F 5
+
+LWC 9 H-F 8
+
+H-F 10 R-B 4
+
+LWC 17 Shepard 5
+
+Niles West 14 Bradley 5
+
+Deerfield 15 Lake Forest 1
+
+Libertyville 15 Elk Grove 2
+
+BG 16 Warren 4
+
+Maine West vs McHenry 2
+
+Championship Round
+
+Elk Grove 13 Lake Forest 8
+
+McHenry 5 Warren 3
+
+Libertyville 14 Deerfield 7
+
+Maine West 13 BG 8
+
+GBS 11 Conant 6
+
+STC 10 HC 7
+
+STC 5 GBS 4
+
+Conant vs HC
+
+GBS 8 HC 5
+
+STC 16 Conant 0
+
+HP 9 VH 7
+
+Hersey 13 Maine East 2
+
+VH 14 Von 8
+
+Schaumburg 13 Maine East 1
+
+HP d. Von
+
+Hersey 4 Schaumburg 2
+
+Schaumburg 13 VH 5
+
+Hersey 9 HP 3
+
+LWE 17 Metea 2
+
+NC 12 Maine South 7
+
+LWE 12 Maine South 2
+
+NC 12 Metea 6
+
+Maine South 14 Metea 11
+
+LWE 17 NC 10
+
+Palatine 12 Loyola 7
+
+Oak Park 17 St Ignatius 11
+
+Andrew 10 Mundelein 5
+
+Championship Round
+
+Oak Park 12 Palatine 7
+
+Waubonsie 10 St Rita 9
+
+Loyola 9 St Ignatius 6
+
+Fenwick 11 Oak Park 7
+
+Waubonsie 7 Andrew 6
+
+Mundelein 20 St Ignatius 6
+
+Palatine 10 Fenwick 7
+
+St Rita 5 Andrew 3
+
+Mundelein 10 Loyola 6
+
+Mt Carmel 15 St Patrick 5
+
+Mt Carmel 14 Northside 9
+
+Brother Rice 17 Senn 7
+
+Brother Rice 12 Lane 7
+
+Northside 9 St Patrick 8
+
+Lane 24 Senn 5
+
+Championship Round
+
+St Patrick 15 Senn 14
+
+Lane 14 Northside 0
+
+Brother Rice 23 Mt Carmel 8
+
+Stevenson 8 Fremd 7
+
+Whitney Young 9 Lyons 8
+
+Whitney Young 12 Stevenson 8
+
+Lyons 16 Fremd 4
+
+Whitney Young 11 Fremd 7
+
+Lyons 14 Stevenson 7
