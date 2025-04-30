@@ -35,7 +35,10 @@ def parse_scores_text(text):
 
 # ---------------- I/O ---------------- #
 def load_scores():
-    return pd.read_csv(SCORES_CSV) if os.path.exists(SCORES_CSV) else pd.DataFrame(columns=["team1","score1","team2","score2"])
+    try:
+        return pd.read_csv(SCORES_CSV)
+    except (FileNotFoundError, pd.errors.EmptyDataError):
+        return pd.DataFrame(columns=["team1","score1","team2","score2"])
 
 def save_scores(df):
     df.to_csv(SCORES_CSV, index=False)
@@ -159,16 +162,26 @@ def rank_elo(stats,elo): return sorted(stats.keys(),key=lambda t:elo[t],reverse=
 # ---------------- App ---------------- #
 st.set_page_config(page_title="Polo Dashboard",layout="wide")
 # Load & parse
-games=load_scores()
-uploader=st.sidebar.file_uploader("Upload scores .txt",type="txt")
+raw_games = load_scores()
+uploader = st.sidebar.file_uploader("Upload scores .txt", type="txt")
 if uploader:
-    new=parse_scores_text(uploader.getvalue().decode())
-    if not new.empty:
-        games=update_scores(games,new)
-    games_inferred=infer_default_scores(games,compute_stats(games)[0])
-else:
-    games_inferred=infer_default_scores(games,compute_stats(games)[0])
-# Stats
+    new_df = parse_scores_text(uploader.getvalue().decode())
+    if not new_df.empty:
+        raw_games = update_scores(raw_games, new_df)
+
+# Initial stats only on games with explicit scores to infer defaults
+scored_games = raw_games.dropna(subset=['score1'])
+initial_stats, _ = compute_stats(scored_games)
+# Include any teams without explicit games (to support inference for all)
+all_teams = set(raw_games['team1']).union(raw_games['team2'])
+for t in all_teams:
+    if t not in initial_stats:
+        initial_stats[t] = {'wins':0,'losses':0,'ties':0,'gf':0,'ga':0,'games':0,'opponents':[]}
+# Infer missing 'd.' game scores using initial_stats
+games_inferred = infer_default_scores(raw_games, initial_stats)
+
+# Compute final stats and head-to-head with inferred games
+stats, h2h = compute_stats(games_inferred)
 stats,h2h=compute_stats(games_inferred)
 sos=compute_sos(stats)
 py=compute_pythag(stats)

@@ -1,761 +1,788 @@
 team1,score1,team2,score2
-Brother Rice,13,St Patrick,3
-Curie,20,Brooks,4
-Elk Grove,21,Wheeling,14
-Fenwick,10,St Rita,7
-Hersey,10,Libertyville,9
-Jones-Payton,10,Northside,9
-Kenwood,17,Prosser,7
-Kennedy,9,Amundsen,8
-Lindblom,14,Julian,1
-LWC,13,H-F,6
-LWW,13,H-F,7
-LWW,15,LWC,13
-York,20,Oak Park,2
-Elk Grove,14,Maine East,8
-GBN,18,Lake Forest,6
-Lane,10,Northside,1
-LWW,17,Bremen,4
-Metea,17,LWC,8
-Neuqua,15,Barrington,13
-Senn,21,Little Village,1
-Waubonsie,12,Lockport,8
-Whitney Young,18,Taft,11
-Barrington,23,Elk Grove,1
-Curie,16,Julian,1
-Deerfield,18,Warren,16
-Fenwick,18,St Patrick,4
-Fremd,17,Prospect,9
-Hersey,14,Conant,6
-Hoffman,16,Meadows,12
-Jones-Payton,13,Westinghouse,6
-Lane,11,Von,7
-Lindblom,14,Solorio,4
-McHenry,7,VH,6
-Mt Carmel,20,St Ignatius,16
-Prosser,3,Chicago Ag,0
-Schaumburg,7,BG,4
-Shepard,5,Stagg,0
-St Rita,9,Loyola,7
-York,20,Morton,2
-Elk Grove,19,Leyden,9
-Kennedy,15,Senn,7
-LWW,9,Metea,8
-NN,14,New Trier,6
-NN,16,York,10
-Schaumburg,16,Lockport,8
-Stevenson,17,Conant,6
-STC,8,Maine South,5
-Waubonsie,17,Sandburg,5
-Westinghouse,18,Little Village,0
-Whitney Young,21,Curie,8
-York,10,New Trier,8
-McHenry,8,Elk Grove,4
-BG,15,Deerfield,9
-Warren,11,Lake Forest,7
-Maine West,8,Libertyville,7
-Deerfield,16,Warren,6
-Libertyville,8,McHenry,2
-BG,13,Lake Forest,3
-Maine West,13,Elk Grove,5
-Palatine,8,St Rita,5
-Oak Park,10,Waubonsie,9
-Fenwick,13,Andrew,7
-St Rita,6,Loyola,3
-Waubonsie,17,St Ignatius,8
-Fenwick,14,Mundelein,4
-Kenwood,11,Amundsen,6
-Taft,12,Solorio,4
-Solorio,11,Amundsen,6
-Kenwood,9,Taft,8
-Bradley,8,Shepard,7
-Niles West,11,LWC,12
-Niles West,11,H-F,5
-LWC,9,H-F,8
-H-F,10,R-B,4
-LWC,17,Shepard,5
-Niles West,14,Bradley,5
-Deerfield,15,Lake Forest,1
-Libertyville,15,Elk Grove,2
-BG,16,Warren,4
-Elk Grove,13,Lake Forest,8
-McHenry,5,Warren,3
-Libertyville,14,Deerfield,7
-Maine West,13,BG,8
-GBS,11,Conant,6
-STC,10,HC,7
-STC,5,GBS,4
-GBS,8,HC,5
-STC,16,Conant,0
-HP,9,VH,7
-Hersey,13,Maine East,2
-VH,14,Von,8
-Schaumburg,13,Maine East,1
-Hersey,4,Schaumburg,2
-Schaumburg,13,VH,5
-Hersey,9,HP,3
-LWE,17,Metea,2
-NC,12,Maine South,7
-LWE,12,Maine South,2
-NC,12,Metea,6
-Maine South,14,Metea,11
-LWE,17,NC,10
-Palatine,12,Loyola,7
-Oak Park,17,St Ignatius,11
-Andrew,10,Mundelein,5
-Oak Park,12,Palatine,7
-Waubonsie,10,St Rita,9
-Loyola,9,St Ignatius,6
-Fenwick,11,Oak Park,7
-Waubonsie,7,Andrew,6
-Mundelein,20,St Ignatius,6
-Palatine,10,Fenwick,7
-St Rita,5,Andrew,3
-Mundelein,10,Loyola,6
-Mt Carmel,15,St Patrick,5
-Mt Carmel,14,Northside,9
-Brother Rice,17,Senn,7
-Brother Rice,12,Lane,7
-Northside,9,St Patrick,8
-Lane,24,Senn,5
-St Patrick,15,Senn,14
-Lane,14,Northside,0
-Brother Rice,23,Mt Carmel,8
-Stevenson,8,Fremd,7
-Whitney Young,9,Lyons,8
-Whitney Young,12,Stevenson,8
-Lyons,16,Fremd,4
-Whitney Young,11,Fremd,7
-Lyons,14,Stevenson,7
-Amundsen,19,Von,13
-Barrington,11,Metea,7
-Kenwood,18,Brooks,12
-Libertyville,11,Conant,10
-McHenry,15,Hoffman,6
-Niles West,15,Maine West,13
-Northside,17,Senn,8
-St Patrick,14,Warren,7
-Taft,19,Westinghouse,10
-Argo,8,Stagg,7
-Curie,14,Jones-Payton,4
-Evanston,11,Deerfield,3
-HP,17,Lake Forest,13
-Lane,18,Lindblom,8
-LWE,20,Bradley,6
-Maine South,10,GBS,4
-NC,11,Neuqua,9
-New Trier,13,GBN,1
-Oak Park,13,Morton,3
-Richards,18,Morton,2
-Sandburg,5,Bremen,3
-Solorio,22,Julian,5
-STC,13,Lockport,7
-Taft,17,Leyden,7
-VH,18,Maine East,5
-Whitney Young,14,LWW,6
-York,19,HC,4
-Amundsen,13,Taft,10
-Brooks,14,Solorio,12
-Brother Rice,15,St Rita,8
-Chicago Ag,24,Julian,5
-Fremd,10,Meadows,0
-Kennedy,20,Kenwood,9
-LWW,18,Bremen,3
-Northside,16,Von,12
-Senn,14,Prosser,4
-St Ignatius,11,St Patrick,5
-Waubonsie,10,Oak Park,7
-Andrew,15,Bradley,4
-BG,14,Lindbergh,6
-Bremen,9,Shepard,6
-Brooks,24,Little Village,1
-Evanston,11,Loyola,9
-Fremd,8,HC,7
-GBN,4,GBS,3
-Kennedy,16,Argo,8
-Lane,11,Jones-Payton,0
-LWC,18,Lockport,9
-Maine West,10,HP,6
-Maine South,14,Deerfield,7
-Niles West,14,Maine East,1
-Northside,17,Westinghouse,3
-Senn,22,Leyden,13
-Whitney Young,15,Lindblom,10
-Fenwick,10,Oak Park,8
-Lyons,13,Waubonsie,7
-New Trier,11,Brother Rice,7
-Stevenson,8,NC,2
-NN,14,Waubonsie,5
-Brother Rice,12,Neuqua,10
-Stevenson,8,LWE,7
-NN,12,Lyons,2
-New Trier,16,Neuqua,1
-LWE,8,NC,7
-Maine South,8,GBS,3
-H-F,9,St Ignatius,6
-Sandburg,10,St Rita,9
-Curie,19,St Ignatius,6
-St Rita,15,Shepard,3
-Metea,15,Bremen,3
-Conant,12,Bremen,7
-Lindbergh,13,Mundelein,8
-HC,7,GBN,1
-Lindbergh,11,Deerfield,4
-GBN,11,Lockport,2
-Mundelein,17,Deerfield,1
-HC,20,Lockport,2
-Schaumburg,10,McHenry,4
-Niles West,14,LWW,7
-Evanston,14,Mt Carmel,5
-Niles West,13,Hoffman,8
-Schaumburg,17,Mt Carmel,3
-STC,15,Barrington,3
-GBS,8,Maine West,7
-Maine South,14,R-B,9
-Maine West,11,Maine South,10
-GBS,13,R-B,1
-Neuqua,9,Parkway West,1
-Waubonsie,15,NC,10
-Brother Rice,14,Oak Park,8
-New Trier,18,Fenwick,7
-NN,13,Stevenson,8
-NC,12,Parkway West,3
-Waubonsie,8,Neuqua,7
-LWE,13,Oak Park,3
-Brother Rice,15,Lyons,8
-New Trier,16,NN,14
-Shepard,11,St Ignatius,8
-St Rita,11,H-F,7
-Curie,18,Sandburg,14
-Metea,11,Conant,9
-Lane,11,Bremen,2
-Lane,14,Conant,9
-Lane,15,Metea,6
-GBN,8,Deerfield,3
-Lindbergh,11,Lockport,5
-HC,13,Mundelein,3
-Deerfield,8,Lockport,3
-Mundelein,8,GBN,5
-HC,10,Lindbergh,6
-Lafayette,8,LWW,7
-McHenry,12,Mt Carmel,11
-Evanston,10,Schaumburg,5
-Lafayette,12,Niles West,11
-Evanston,12,McHenry,3
-Hoffman,13,Mt Carmel,8
-LWW,11,McHenry,4
-Schaumburg,14,Niles West,12
-Evanston,11,Lafayette,6
-Shepard,1,R-B,0
-Bradley,1,R-B,0
-HP,1,Von,0
-Brother Rice,18,Loyola,5
-St Rita,15,Mt Carmel,4
-Neuqua,13,HC,8
-NN,18,LWE,10
-Andrew,12,LWW,10
-Lockport,10,H-F,6
-NN,16,NC,4
-Neuqua,12,Metea,4
-STC,8,Waubonsie,4
-STC,18,LWC,10
-Mt Carmel,18,St Patrick,6
-H-F,6,Stagg,4
-LWE,9,Andrew,8
-Metea,7,Lockport,4
-Morton,19,Leyden,10
-Bradley,11,HP,1
-Taft,14,Maine East,4
-Bradley,18,Taft,8
-Taft,9,HP,8
-HP,1,Maine East,0
-Bradley,14,Maine East,4
-SLUH,11,York,10
-Stevenson,10,Whitney Young,6
-New Trier,12,Lyons,2
-NN,15,St Ignatius,4
-York,12,Stevenson,11
-NN,13,Lyons,5
-Whitney Young,4,SLUH,3
-New Trier,14,St Ignatius,5
-York,16,Whitney Young,3
-Lyons,22,St Ignatius,4
-SLUH,9,Stevenson,6
-New Trier,14,NN,13
-Whitney Young,13,St Ignatius,9
-Stevenson,11,Lyons,7
-NN,16,York,9
-New Trier,13,SLUH,12
-Bremen,9,Argo,8
-Fenwick,15,St Ignatius,4
-Loyola,19,Mt Carmel,11
-Maine West,16,Meadows,10
-St Rita,17,Warren,5
-Andrew,14,Lockport,6
-GBS,10,Mundelein,7
-Hoffman,20,Lake Forest,5
-HP,10,Warren,9
-Libertyville,11,VH,7
-LWE,11,LWW,10
-Niles West,17,Latin,1
-Sandburg,16,LWC,13
-Stevenson,23,GBN,7
-Barrington,23,Hoffman,10
-Brother Rice,14,Fenwick,11
-Curie,17,Kenwood,2
-Fremd,16,Conant,9
-Hersey,15,Elk Grove,7
-Jones-Payton,11,Taft,9
-Lane,14,Deerfield,3
-Loyola,14,St Ignatius,9
-Meadows,14,Wheeling,10
-Mt Carmel,18,Brooks,12
-Palatine,9,Schaumburg,6
-Prospect,11,BG,10
-Solorio,16,Chicago U,7
-Whitney Young,16,Amundsen,9
-Amundsen,18,Senn,8
-BG,10,Mundelein,8
-Bradley,9,Bremen,4
-Kennedy,18,Brooks,6
-Kenwood,18,Julian,2
-Lane,19,Curie,1
-Loyola,9,GBS,8
-LWW,17,Shepard,3
-Mt Carmel,11,Westinghouse,5
-New Trier,14,Evanston,4
-Niles West,10,GBN,6
-Schaumburg,10,Libertyville,8
-Taft,17,Latin,6
-Barrington,11,BG,10
-Chaminade,6,STC,5
-Conant,14,Sandburg,9
-Little Village,12,Julian,11
-Meadows,17,Maine East,6
-STC,8,Hersey,5
-Taft,14,Von,8
-Palatine,18,Curie,11
-Palatine,9,Oakville,2
-Oakville,14,Curie,9
-LWC,19,Shepard,7
-Mt Carmel,15,Jones-Payton,4
-Schaumburg,5,Andrew,4
-LWC,15,Jones-Payton,2
-Mt Carmel,11,Shepard,10
-Brooks,13,Westinghouse,4
-Brooks,11,Von,10
-Brooks,7,Senn,6
-Senn,16,Chicago Ag,8
-Senn,16,Julian,6
-BG,17,Deerfield,8
-LWW,16,Deerfield,3
-LWW,11,BG,10
-Andrew,8,Lockport,6
-Shepard,9,Jones-Payton,7
-Andrew,15,H-F,5
-Schaumburg,10,Lockport,4
-LWC,19,Mt Carmel,9
-Schaumburg,14,H-F,4
-Andrew,14,Mt Carmel,3
-Schaumburg,17,LWC,12
-STC,11,Mundelein,4
-Maine South,19,Bradley,9
-STC,14,Oakville,3
-Maine South,15,Chaminade,10
-Oakville,12,Mundelein,9
-Chaminade,14,Bradley,6
-Mundelein,19,Bradley,11
-Chaminade,10,Oakville,9
-STC,6,Maine South,5
-Stevenson,9,Evanston,6
-Stevenson,14,Fenwick,6
-Evanston,14,Fenwick,8
-Andrew,16,Bremen,1
-Barrington,23,Lake Forest,11
-Brother Rice,27,Mt Carmel,14
-Conant,11,McHenry,6
-Curie,23,Chicago Ag,5
-Jones-Payton,14,St Ignatius,9
-Kennedy,14,Little Village,5
-Lane,22,Amundsen,6
-Lindblom,8,Northside,5
-Loyola,9,St Patrick,4
-LWC,22,Argo,12
-Maine East,7,Morton,6
-Meadows,9,HP,8
-St Ignatius,13,Jones-Payton,2
-Taft,15,Prosser,2
-Whitney Young,15,Solorio,6
-Amundsen,15,Latin,5
-Argo,16,Leyden,6
-Evanston,15,Maine South,12
-Fenwick,16,Loyola,8
-GBN,12,Deerfield,6
-Kennedy,21,Chicago Ag,3
-Libertyville,14,Lake Forest,4
-LWE,14,Lockport,10
-LWW,23,LWC,8
-Maine West,15,VH,8
-Mundelein,19,Warren,12
-New Trier,15,GBS,4
-Niles West,14,HP,5
-Sandburg,16,H-F,6
-STC,9,Metea,6
-Von,18,Westinghouse,7
-Whitney Young,10,Lane,8
-York,14,Fremd,4
-Amundsen,15,Prosser,1
-Andrew,16,Shepard,4
-Brother Rice,19,St Ignatius,7
-BG,17,Meadows,10
-Brooks,16,Chicago Ag,11
-Conant,16,Hoffman,3
-Curie,25,Lindblom,8
-Fenwick,16,Mt Carmel,6
-Fremd,11,Schaumburg,10
-Hersey,12,Wheeling,3
-Kenwood,12,Solorio,8
-Oak Park,12,HC,8
-Palatine,12,Barrington,8
-Prospect,14,Elk Grove,12
-R-B,7,Morton,6
-St Patrick,18,Latin,5
-Amundsen,11,Northside,4
-Curie,10,BG,7
-Evanston,9,GBS,5
-H-F,16,Bremen,10
-LWW,16,Sandburg,13
-Mundelein,23,Lake Forest,5
-Maine South,12,GBN,3
-NC,14,Bradley,3
-NN,16,Metea,5
-Niles West,9,Loyola,7
-Schaumburg,16,Elk Grove,2
-Stevenson,27,Warren,8
-Taft,15,Senn,11
-Solorio,15,Prosser,1
-VH,15,HP,3
-Waubonsie,17,Neuqua,13
-Westinghouse,15,Leyden,13
-Barrington,13,Hersey,6
-Kenwood,23,Little Village,1
-McHenry,10,Hoffman,9
-Schaumburg,6,HC,5
-GBN,4,New Trier B,1
-Prospect,13,Conant,12
-New Trier B,10,Jones-Payton,4
-Brother Rice,21,Conant,12
-GBN,11,Jones-Payton,4
-Brother Rice,22,Prospect,7
-Lyons,8,LWE,6
-York,15,Neuqua,8
-Palatine,12,Oak Park,7
-St Rita,14,St Ignatius,6
-New Trier,13,Chaminade,2
-Lindbergh,8,Fenwick,5
-New Trier,12,Parkway Central,1
-Fenwick,14,DeSmet,7
-STC,7,Waubonsie,6
-Whitney Young,14,Sandburg,5
-NN,17,Evanston,6
-Stevenson,1,Maine South,0
-Whitney Young,11,STC,6
-NN,18,Stevenson,8
-Kenwood,10,Kennedy,8
-Kenwood,12,Chicago U,11
-Kenwood,8,Kennedy,7
-Solorio,15,Kenwood,10
-Lane,16,McHenry,2
-Lane,16,Elk Grove,1
-Lane,16,Hoffman,1
-McHenry,13,Lake Forest,2
-McHenry,16,Elk Grove,6
-Hoffman,20,Lake Forest,10
-Prospect,16,Jones-Payton,2
-GBN,6,Conant,1
-Brother Rice,18,New Trier B,4
-Conant,13,Jones-Payton,4
-Prospect,11,New Trier B,7
-Brother Rice,7,GBN,5
-Fremd,8,GBS,6
-Fremd,14,HP,2
-Fremd,9,HC,4
-GBS,11,HP,0
-GBS,4,HC,4
-HC,11,HP,2
-Libertyville,14,VH,7
-Barrington,14,Bradley,8
-Libertyville,11,Barrington,6
-VH,12,Bradley,11
-Barrington,17,VH,7
-Libertyville,16,Bradley,5
-New Trier,13,Lafayette,4
-SLUH,15,Fenwick,7
-New Trier,10,SLUH,9
-Fenwick,6,Parkway West,5
-Lyons,1,St Rita,0
-York,16,Oak Park,4
-LWE,15,St Ignatius,10
-Palatine,16,Neuqua,7
-Lyons,20,St Ignatius,2
-York,17,Palatine,7
-LWE,12,St Rita,2
-Neuqua,1,Oak Park,0
-Oak Park,1,St Ignatius (7th),0
-Neuqua,10,St Rita,7
-Palatine,16,LWE,9
-York,13,Lyons,7
-Maine South,10,Evanston,6
-Stevenson,12,STC,4
-Evanston,12,Waubonsie,10
-NN,11,Whitney Young,8
-Maine South,14,Sandburg,6
-Stevenson,12,Whitney Young,9
-Waubonsie,14,Sandburg,6
-Evanston,9,Sandburg,4
-Maine South,12,Waubonsie,8
-Andrew,17,R-B,1
-Chicago U,11,Chicago Ag,9
-Curie,14,Solorio,3
-Hoffman,19,Wheeling,6
-Lindblom,14,Kenwood,11
-Maine West,15,Jones-Payton,4
-McHenry,17,Warren,7
-Neuqua,8,Oak Park,5
-NN,12,HC,3
-STC,20,Latin,2
-St Rita,12,St Ignatius,8
-Whitney Young,11,Northside,7
-BG,11,Loyola,6
-Brooks,14,Julian,8
-Chicago Ag,18,Little Village,5
-Evanston,8,GBN,3
-Fremd,19,Hoffman,5
-GBS,11,Deerfield,5
-Kennedy,18,Prosser,3
-Jones-Payton,8,Amundsen,6
-Lane,14,Taft,4
-Libertyville,7,Mundelein,4
-LWC,20,H-F,12
-LWW,19,Lockport,6
-NC,14,Metea,9
-NN,14,Waubonsie,6
-New Trier,13,Maine South,8
-Niles West,20,VH,14
-Sandburg,11,Bradley,9
-STC,11,McHenry,4
-Stevenson,17,Lake Forest,1
-Senn,16,Westinghouse,15
-St Rita,15,St Patrick,6
-York,20,Fenwick,6
-Amundsen,19,Westinghouse,11
-BG,11,Wheeling,4
-Evanston,12,Loyola,9
-Kennedy,15,Solorio,8
-Kenwood,17,Chicago Ag,7
-Lane,19,St Ignatius,4
-Lyons,10,HC,9
-Meadows,14,Elk Grove,6
-Oak Park,9,Fenwick,8
-Palatine,9,Conant,6
-Prospect,13,Hersey,10
-Schaumburg,12,Barrington,10
-Taft,7,Northside,5
-Von,22,Prosser,2
-Andrew,12,Sandburg,2
-Argo,9,Morton,2
-Barrington,23,VH,12
-Conant,19,Curie,9
-GBS,12,Niles West,5
-HC,15,Metea,8
-Lindblom,11,Brooks,8
-Lockport,5,Stagg,0
-LWC,1,Bradley,0
-LWW,17,H-F,3
-NC,12,STC,7
-Neuqua,11,St Rita,7
-Maine South,24,Maine West,10
-Meadows,16,Leyden,5
-Prospect,11,Maine East,2
-Schaumburg,16,Mundelein,7
-Solorio,15,Little Village,0
-St Patrick,8,Amundsen,7
-Stevenson,15,Libertyville,10
-Von,13,Senn,10
-Warren,16,Lake Forest,7
-Westinghouse,12,Chicago U,11
-Whitney Young,16,Jones-Payton,7
-Northside,10,Chicago U,5
-NC,9,HC,5
-York,10,GBS,2
-GBS,8,NC,7
-York,12,HC,5
-NN,8,Mundelein,2
-New Trier,15,Sandburg,5
-NN,18,Sandburg,1
-New Trier,10,Mundelein,3
-Taft,13,Kenwood,3
-Taft,7,Mather,3
-Kenwood,21,Chicago Ag,12
-LWE,15,Barrington,14
-LWE,19,McHenry,2
-LWE,15,Jones-Payton,5
-Barrington,16,McHenry,10
-Barrington,20,Jones-Payton,3
-Brother Rice,13,Andrew,8
-Brother Rice,22,Warren,7
-Brother Rice,11,St Rita,7
-GBN,7,St Rita,6
-GBN,14,Warren,9
-Andrew,20,Warren,5
-St Rita,13,Lockport,11
-Lockport,10,GBN,5
-BG,12,Maine East,4
-R-B,12,Maine East,5
-BG,14,R-B,4
-Palatine,9,Evanston,6
-Libertyville,9,Evanston,6
-Palatine,11,Deerfield,2
-Palatine,14,Libertyville,5
-Evanston,13,Deerfield,4
-Libertyville,8,Deerfield,3
-Fremd,8,Loyola,3
-Neuqua,10,Curie,5
-Neuqua,13,Loyola,6
-Neuqua,15,Fremd,9
-Loyola,11,Curie,6
-Fremd,15,Curie,5
-NC,12,Mundelein,10
-HC,15,Sandburg,3
-New Trier,14,GBS,2
-York,8,NN,7
-Sandburg,12,Mundelein,7
-NC,13,HC,7
-NN,11,GBS,5
-New Trier,8,York,4
-Shepard,14,Kenwood,6
-Shepard,10,Elk Grove,5
-Kenwood,13,Elk Grove,3
-Mt Carmel,8,Bremen,5
-Mt Carmel,12,Argo,6
-Bremen,10,Argo,9
-Kenwood,14,Argo,10
-Bremen,13,Elk Grove,3
-Mt Carmel,11,Shepard,6
-Niles West,8,HP,2
-Niles West,9,Metea,6
-Waubonsie,13,Niles West,6
-Waubonsie,6,Metea,5
-Andrew,19,Argo,5
-Curie,16,Kennedy,7
-Fenwick,9,Morton,2
-Libertyville,9,BG,4
-Palatine,14,Hersey,6
-Prospect,18,Hoffman,11
-Schaumburg,17,VH,10
-St Patrick,8,Meadows,4
-Warren,11,R-B,6
-Andrew,19,LWC,8
-BG,15,McHenry,5
-Brother Rice,14,Bremen,3
-Chicago U,14,Latin,7
-H-F,10,Bradley,9
-HP,7,Deerfield,6
-Lane,7,GBS,4
-Libertyville,16,Warren,5
-Lindblom,21,Kenwood,12
-LWE,21,Sandburg,4
-Maine East,11,Elk Grove,9
-Maine South,11,Loyola,6
-NC,15,Waubonsie,8
-NN,22,Neuqua,12
-Palatine,14,Wheeling,5
-Shepard,25,Leyden,9
-Stevenson,11,Mundelein,6
-Barrington,13,Fremd,10
-Bremen,7,Shepard,6
-Elk Grove,12,Wheeling,10
-BG,16,Hersey,7
-Kennedy,15,Westinghouse,6
-Lane,11,Evanston,9
-Lindblom,10,Kennedy,9
-Maine West,10,GBN,8
-Metea,12,Sandburg,11
-Neuqua,9,STC,8
-Oak Park,13,Loyola,10
-Palatine,16,Hoffman,1
-Prospect,11,Meadows,10
-Schaumburg,13,Conant,2
-Whitney Young,13,St Ignatius,11
-Andrew,15,H-F,3
-Conant,14,Wheeling,12
-Libertyville,10,HP,2
-Lindblom,8,Amundsen,6
-Lockport,12,Sandburg,10
-LWE,15,LWC,7
-LWW,18,Bradley,4
-Maine East,8,Leyden,7
-Meadows,9,Hoffman,8
-Mt Carmel,21,Bremen,15
-NC,12,Whitney Young,10
-NN,16,Fremd,9
-VH,20,Warren,19
-Shepard,14,Argo,6
-Amundsen,11,St Ignatius,10
-BG,14,VH,10
-GBS,13,Prospect,4
-Evanston,6,STC,4
-GBS,16,Lake Forest,2
-Palatine,13,GBN,3
-STC,9,Hersey,4
-Loyola,9,GBN,8
-Neuqua,11,Metea,6
-Brother Rice,11,Schaumburg,3
-Prospect,19,Lake Forest,7
-Palatine,11,Loyola,6
-Evanston,10,Hersey,2
-STC,12,Prospect,2
-STC,20,Loyola,7
-Hersey,4,GBN,3
-Hersey,17,Lake Forest,3
-Palatine,7,GBS,6
-Evanston,8,Palatine,6
-Evanston,11,GBS,5
-LWW,18,Warren,4
-Fremd,15,McHenry,3
-LWW,14,McHenry,5
-Fremd,16,Warren,7
-McHenry,7,Warren,6
-Fremd,11,LWW,6
-Brother Rice,12,Metea,5
-Brother Rice,12,Neuqua,7
-Schaumburg,11,Metea,4
-Neuqua,9,Schaumburg,8
-Mundelein,12,Conant,4
-NC,13,H-F,3
-NC,11,Mundelein,5
-Conant,11,H-F,10
-NC,15,Conant,1
-Stevenson,12,St Rita,7
-York,6,Stevenson,5
-St Rita,5,York,4
-Loyola,16,Prospect,10
-GBN,12,Prospect,9
-Hoffman,15,Lake Forest,5
-LWW,18,R-B,1
-Maine West,12,Deerfield,5
-VH,16,Latin,5
-York,18,Hersey,6
-BG,11,Maine West,10
-Brooks,17,Kenwood,10
-Brother Rice,18,LWW,14
-HP,13,Leyden,7
-LWE,15,Metea,4
-Maine South,13,Waubonsie,9
-Mt Carmel,19,Latin,7
-NC,12,Loyola,7
-Palatine,10,STC,7
-Schaumburg,13,Deerfield,0
-St Rita,10,Sandburg,7
-Taft,9,Amundsen,5
-Warren,7,Maine East,5
+Brother Rice,13.0,St Patrick,3.0
+Curie,20.0,Brooks,4.0
+Elk Grove,21.0,Wheeling,14.0
+Fenwick,10.0,St Rita,7.0
+Hersey,10.0,Libertyville,9.0
+Jones-Payton,10.0,Northside,9.0
+Kenwood,17.0,Prosser,7.0
+Kennedy,9.0,Amundsen,8.0
+Lindblom,14.0,Julian,1.0
+LWC,13.0,H-F,6.0
+LWW,13.0,H-F,7.0
+LWW,15.0,LWC,13.0
+York,20.0,Oak Park,2.0
+Elk Grove,14.0,Maine East,8.0
+GBN,18.0,Lake Forest,6.0
+Lane,10.0,Northside,1.0
+LWW,17.0,Bremen,4.0
+Metea,17.0,LWC,8.0
+Neuqua,15.0,Barrington,13.0
+Senn,21.0,Little Village,1.0
+Waubonsie,12.0,Lockport,8.0
+Whitney Young,18.0,Taft,11.0
+Barrington,23.0,Elk Grove,1.0
+Curie,16.0,Julian,1.0
+Deerfield,18.0,Warren,16.0
+Fenwick,18.0,St Patrick,4.0
+Fremd,17.0,Prospect,9.0
+Hersey,14.0,Conant,6.0
+Hoffman,16.0,Meadows,12.0
+Jones-Payton,13.0,Westinghouse,6.0
+Lane,11.0,Von,7.0
+Lindblom,14.0,Solorio,4.0
+McHenry,7.0,VH,6.0
+Mt Carmel,20.0,St Ignatius,16.0
+Prosser,3.0,Chicago Ag,0.0
+Schaumburg,7.0,BG,4.0
+Shepard,5.0,Stagg,0.0
+St Rita,9.0,Loyola,7.0
+York,20.0,Morton,2.0
+Elk Grove,19.0,Leyden,9.0
+Kennedy,15.0,Senn,7.0
+LWW,9.0,Metea,8.0
+NN,14.0,New Trier,6.0
+NN,16.0,York,10.0
+Schaumburg,16.0,Lockport,8.0
+Stevenson,17.0,Conant,6.0
+STC,8.0,Maine South,5.0
+Waubonsie,17.0,Sandburg,5.0
+Westinghouse,18.0,Little Village,0.0
+Whitney Young,21.0,Curie,8.0
+York,10.0,New Trier,8.0
+McHenry,8.0,Elk Grove,4.0
+BG,15.0,Deerfield,9.0
+Warren,11.0,Lake Forest,7.0
+Maine West,8.0,Libertyville,7.0
+Deerfield,16.0,Warren,6.0
+Libertyville,8.0,McHenry,2.0
+BG,13.0,Lake Forest,3.0
+Maine West,13.0,Elk Grove,5.0
+Palatine,8.0,St Rita,5.0
+Oak Park,10.0,Waubonsie,9.0
+Fenwick,13.0,Andrew,7.0
+St Rita,6.0,Loyola,3.0
+Waubonsie,17.0,St Ignatius,8.0
+Fenwick,14.0,Mundelein,4.0
+Kenwood,11.0,Amundsen,6.0
+Taft,12.0,Solorio,4.0
+Solorio,11.0,Amundsen,6.0
+Kenwood,9.0,Taft,8.0
+Bradley,8.0,Shepard,7.0
+Shepard,,R-B,
+Bradley,,R-B,
+Niles West,15.0,LWC,12.0
+Niles West,11.0,H-F,5.0
+LWC,9.0,H-F,8.0
+H-F,10.0,R-B,4.0
+LWC,17.0,Shepard,5.0
+Niles West,14.0,Bradley,5.0
+Deerfield,15.0,Lake Forest,1.0
+Libertyville,15.0,Elk Grove,2.0
+BG,16.0,Warren,4.0
+Elk Grove,13.0,Lake Forest,8.0
+McHenry,5.0,Warren,3.0
+Libertyville,14.0,Deerfield,7.0
+Maine West,13.0,BG,8.0
+GBS,11.0,Conant,6.0
+STC,10.0,HC,7.0
+STC,5.0,GBS,4.0
+GBS,8.0,HC,5.0
+STC,16.0,Conant,0.0
+HP,9.0,VH,7.0
+Hersey,13.0,Maine East,2.0
+VH,14.0,Von,8.0
+Schaumburg,13.0,Maine East,1.0
+HP,,Von,
+Hersey,4.0,Schaumburg,2.0
+Schaumburg,13.0,VH,5.0
+Hersey,9.0,HP,3.0
+LWE,17.0,Metea,2.0
+NC,12.0,Maine South,7.0
+LWE,12.0,Maine South,2.0
+NC,12.0,Metea,6.0
+Maine South,14.0,Metea,11.0
+LWE,17.0,NC,10.0
+Palatine,12.0,Loyola,7.0
+Oak Park,17.0,St Ignatius,11.0
+Andrew,10.0,Mundelein,5.0
+Oak Park,12.0,Palatine,7.0
+Waubonsie,10.0,St Rita,9.0
+Loyola,9.0,St Ignatius,6.0
+Fenwick,11.0,Oak Park,7.0
+Waubonsie,7.0,Andrew,6.0
+Mundelein,20.0,St Ignatius,6.0
+Palatine,10.0,Fenwick,7.0
+St Rita,5.0,Andrew,3.0
+Mundelein,10.0,Loyola,6.0
+Mt Carmel,15.0,St Patrick,5.0
+Mt Carmel,14.0,Northside,9.0
+Brother Rice,17.0,Senn,7.0
+Brother Rice,12.0,Lane,7.0
+Northside,9.0,St Patrick,8.0
+Lane,24.0,Senn,5.0
+St Patrick,15.0,Senn,14.0
+Lane,14.0,Northside,0.0
+Brother Rice,23.0,Mt Carmel,8.0
+Stevenson,8.0,Fremd,7.0
+Whitney Young,9.0,Lyons,8.0
+Whitney Young,12.0,Stevenson,8.0
+Lyons,16.0,Fremd,4.0
+Whitney Young,11.0,Fremd,7.0
+Lyons,14.0,Stevenson,7.0
+Amundsen,19.0,Von,13.0
+Barrington,11.0,Metea,7.0
+Kenwood,18.0,Brooks,12.0
+Libertyville,11.0,Conant,10.0
+McHenry,15.0,Hoffman,6.0
+Niles West,15.0,Maine West,13.0
+Northside,17.0,Senn,8.0
+St Patrick,14.0,Warren,7.0
+Taft,19.0,Westinghouse,10.0
+Argo,8.0,Stagg,7.0
+Curie,14.0,Jones-Payton,4.0
+Evanston,11.0,Deerfield,3.0
+HP,17.0,Lake Forest,13.0
+Lane,18.0,Lindblom,8.0
+LWE,20.0,Bradley,6.0
+Maine South,10.0,GBS,4.0
+NC,11.0,Neuqua,9.0
+New Trier,13.0,GBN,1.0
+Oak Park,13.0,Morton,3.0
+Richards,18.0,Morton,2.0
+Sandburg,5.0,Bremen,3.0
+Solorio,22.0,Julian,5.0
+STC,13.0,Lockport,7.0
+Taft,17.0,Leyden,7.0
+VH,18.0,Maine East,5.0
+Whitney Young,14.0,LWW,6.0
+York,19.0,HC,4.0
+Amundsen,13.0,Taft,10.0
+Brooks,14.0,Solorio,12.0
+Brother Rice,15.0,St Rita,8.0
+Chicago Ag,24.0,Julian,5.0
+Fremd,10.0,Meadows,0.0
+Kennedy,20.0,Kenwood,9.0
+LWW,18.0,Bremen,3.0
+Northside,16.0,Von,12.0
+Senn,14.0,Prosser,4.0
+St Ignatius,11.0,St Patrick,5.0
+Waubonsie,10.0,Oak Park,7.0
+Andrew,15.0,Bradley,4.0
+BG,14.0,Lindbergh,6.0
+Bremen,9.0,Shepard,6.0
+Brooks,24.0,Little Village,1.0
+Evanston,11.0,Loyola,9.0
+Fremd,8.0,HC,7.0
+GBN,4.0,GBS,3.0
+Kennedy,16.0,Argo,8.0
+Lane,11.0,Jones-Payton,0.0
+LWC,18.0,Lockport,9.0
+Maine West,10.0,HP,6.0
+Maine South,14.0,Deerfield,7.0
+Niles West,14.0,Maine East,1.0
+Northside,17.0,Westinghouse,3.0
+Senn,22.0,Leyden,13.0
+Whitney Young,15.0,Lindblom,10.0
+Fenwick,10.0,Oak Park,8.0
+Lyons,13.0,Waubonsie,7.0
+New Trier,11.0,Brother Rice,7.0
+Stevenson,8.0,NC,2.0
+NN,14.0,Waubonsie,5.0
+Brother Rice,12.0,Neuqua,10.0
+Fenwick,,Parkway West,
+Stevenson,8.0,LWE,7.0
+NN,12.0,Lyons,2.0
+New Trier,16.0,Neuqua,1.0
+Oak Park,,Parkway West,
+LWE,8.0,NC,7.0
+Maine South,8.0,GBS,3.0
+H-F,9.0,St Ignatius,6.0
+Sandburg,10.0,St Rita,9.0
+Curie,19.0,St Ignatius,6.0
+St Rita,15.0,Shepard,3.0
+Metea,15.0,Bremen,3.0
+Conant,12.0,Bremen,7.0
+Lindbergh,13.0,Mundelein,8.0
+HC,7.0,GBN,1.0
+Lindbergh,11.0,Deerfield,4.0
+GBN,11.0,Lockport,2.0
+Mundelein,17.0,Deerfield,1.0
+HC,20.0,Lockport,2.0
+Lafayette,,Hoffman,
+Schaumburg,10.0,McHenry,4.0
+Niles West,14.0,LWW,7.0
+Evanston,14.0,Mt Carmel,5.0
+Niles West,13.0,Hoffman,8.0
+Schaumburg,17.0,Mt Carmel,3.0
+STC,15.0,Barrington,3.0
+GBS,8.0,Maine West,7.0
+Maine South,14.0,R-B,9.0
+Maine West,11.0,Maine South,10.0
+GBS,13.0,R-B,1.0
+Neuqua,9.0,Parkway West,1.0
+Waubonsie,15.0,NC,10.0
+Brother Rice,14.0,Oak Park,8.0
+Lyons,,LWE,
+New Trier,18.0,Fenwick,7.0
+NN,13.0,Stevenson,8.0
+NC,12.0,Parkway West,3.0
+Waubonsie,8.0,Neuqua,7.0
+LWE,13.0,Oak Park,3.0
+Brother Rice,15.0,Lyons,8.0
+Stevenson,,Fenwick,
+New Trier,16.0,NN,14.0
+Curie,,H-F,
+Sandburg,,Shepard,
+Shepard,11.0,St Ignatius,8.0
+St Rita,11.0,H-F,7.0
+Curie,18.0,Sandburg,14.0
+Metea,11.0,Conant,9.0
+Lane,11.0,Bremen,2.0
+Lane,14.0,Conant,9.0
+Lane,15.0,Metea,6.0
+GBN,8.0,Deerfield,3.0
+Lindbergh,11.0,Lockport,5.0
+HC,13.0,Mundelein,3.0
+Deerfield,8.0,Lockport,3.0
+Mundelein,8.0,GBN,5.0
+HC,10.0,Lindbergh,6.0
+Lafayette,8.0,LWW,7.0
+McHenry,12.0,Mt Carmel,11.0
+LWW,,Hoffman,
+Evanston,10.0,Schaumburg,5.0
+Lafayette,12.0,Niles West,11.0
+Evanston,12.0,McHenry,3.0
+Hoffman,13.0,Mt Carmel,8.0
+LWW,11.0,McHenry,4.0
+Schaumburg,14.0,Niles West,12.0
+Evanston,11.0,Lafayette,6.0
+Brother Rice,18.0,Loyola,5.0
+St Rita,15.0,Mt Carmel,4.0
+Neuqua,13.0,HC,8.0
+NN,18.0,LWE,10.0
+Andrew,12.0,LWW,10.0
+Lockport,10.0,H-F,6.0
+NN,16.0,NC,4.0
+Neuqua,12.0,Metea,4.0
+STC,8.0,Waubonsie,4.0
+STC,18.0,LWC,10.0
+Mt Carmel,18.0,St Patrick,6.0
+H-F,6.0,Stagg,4.0
+LWE,9.0,Andrew,8.0
+Metea,7.0,Lockport,4.0
+Morton,19.0,Leyden,10.0
+Bradley,11.0,HP,1.0
+Taft,14.0,Maine East,4.0
+Bradley,18.0,Taft,8.0
+Taft,9.0,HP,8.0
+HP,,Maine East,
+Bradley,14.0,Maine East,4.0
+SLUH,11.0,York,10.0
+Stevenson,10.0,Whitney Young,6.0
+New Trier,12.0,Lyons,2.0
+NN,15.0,St Ignatius,4.0
+York,12.0,Stevenson,11.0
+NN,13.0,Lyons,5.0
+Whitney Young,4.0,SLUH,3.0
+New Trier,14.0,St Ignatius,5.0
+York,16.0,Whitney Young,3.0
+Lyons,22.0,St Ignatius,4.0
+SLUH,9.0,Stevenson,6.0
+New Trier,14.0,NN,13.0
+Whitney Young,13.0,St Ignatius,9.0
+Stevenson,11.0,Lyons,7.0
+NN,16.0,York,9.0
+New Trier,13.0,SLUH,12.0
+Bremen,9.0,Argo,8.0
+Fenwick,15.0,St Ignatius,4.0
+Loyola,19.0,Mt Carmel,11.0
+Maine West,16.0,Meadows,10.0
+St Rita,17.0,Warren,5.0
+Andrew,14.0,Lockport,6.0
+GBS,10.0,Mundelein,7.0
+Hoffman,20.0,Lake Forest,5.0
+HP,10.0,Warren,9.0
+Libertyville,11.0,VH,7.0
+LWE,11.0,LWW,10.0
+Niles West,17.0,Latin,1.0
+Sandburg,16.0,LWC,13.0
+Stevenson,23.0,GBN,7.0
+Barrington,23.0,Hoffman,10.0
+Brother Rice,14.0,Fenwick,11.0
+Curie,17.0,Kenwood,2.0
+Fremd,16.0,Conant,9.0
+Hersey,15.0,Elk Grove,7.0
+Jones-Payton,11.0,Taft,9.0
+Lane,14.0,Deerfield,3.0
+Loyola,14.0,St Ignatius,9.0
+Meadows,14.0,Wheeling,10.0
+Mt Carmel,18.0,Brooks,12.0
+Palatine,9.0,Schaumburg,6.0
+Prospect,11.0,BG,10.0
+Solorio,16.0,Chicago U,7.0
+Whitney Young,16.0,Amundsen,9.0
+Amundsen,18.0,Senn,8.0
+BG,10.0,Mundelein,8.0
+Bradley,9.0,Bremen,4.0
+Kennedy,18.0,Brooks,6.0
+Kenwood,18.0,Julian,2.0
+Lane,19.0,Curie,1.0
+Loyola,9.0,GBS,8.0
+LWW,17.0,Shepard,3.0
+Mt Carmel,11.0,Westinghouse,5.0
+New Trier,14.0,Evanston,4.0
+Niles West,10.0,GBN,6.0
+Schaumburg,10.0,Libertyville,8.0
+Taft,17.0,Latin,6.0
+Barrington,11.0,BG,10.0
+Chaminade,6.0,STC,5.0
+Conant,14.0,Sandburg,9.0
+Little Village,12.0,Julian,11.0
+Meadows,17.0,Maine East,6.0
+STC,8.0,Hersey,5.0
+Taft,14.0,Von,8.0
+Palatine,18.0,Curie,11.0
+Palatine,9.0,Oakville,2.0
+Oakville,14.0,Curie,9.0
+LWC,19.0,Shepard,7.0
+Mt Carmel,15.0,Jones-Payton,4.0
+Schaumburg,5.0,Andrew,4.0
+LWC,15.0,Jones-Payton,2.0
+Mt Carmel,11.0,Shepard,10.0
+Brooks,13.0,Westinghouse,4.0
+Brooks,11.0,Von,10.0
+Brooks,7.0,Senn,6.0
+Senn,16.0,Chicago Ag,8.0
+Senn,16.0,Julian,6.0
+BG,17.0,Deerfield,8.0
+LWW,16.0,Deerfield,3.0
+LWW,11.0,BG,10.0
+Andrew,8.0,Lockport,6.0
+Shepard,9.0,Jones-Payton,7.0
+Andrew,15.0,H-F,5.0
+Schaumburg,10.0,Lockport,4.0
+LWC,19.0,Mt Carmel,9.0
+Schaumburg,14.0,H-F,4.0
+Andrew,14.0,Mt Carmel,3.0
+Schaumburg,17.0,LWC,12.0
+STC,11.0,Mundelein,4.0
+Maine South,19.0,Bradley,9.0
+STC,14.0,Oakville,3.0
+Maine South,15.0,Chaminade,10.0
+Oakville,12.0,Mundelein,9.0
+Chaminade,14.0,Bradley,6.0
+Mundelein,19.0,Bradley,11.0
+Chaminade,10.0,Oakville,9.0
+STC,6.0,Maine South,5.0
+Stevenson,9.0,Evanston,6.0
+Stevenson,14.0,Fenwick,6.0
+Evanston,14.0,Fenwick,8.0
+Andrew,16.0,Bremen,1.0
+Barrington,23.0,Lake Forest,11.0
+Brother Rice,27.0,Mt Carmel,14.0
+Conant,11.0,McHenry,6.0
+Curie,23.0,Chicago Ag,5.0
+Jones-Payton,14.0,St Ignatius,9.0
+Kennedy,14.0,Little Village,5.0
+Lane,22.0,Amundsen,6.0
+Lindblom,8.0,Northside,5.0
+Loyola,9.0,St Patrick,4.0
+LWC,22.0,Argo,12.0
+Maine East,7.0,Morton,6.0
+Meadows,9.0,HP,8.0
+St Ignatius,13.0,Jones-Payton,2.0
+Taft,15.0,Prosser,2.0
+Whitney Young,15.0,Solorio,6.0
+Amundsen,15.0,Latin,5.0
+Argo,16.0,Leyden,6.0
+Evanston,15.0,Maine South,12.0
+Fenwick,16.0,Loyola,8.0
+GBN,12.0,Deerfield,6.0
+Kennedy,21.0,Chicago Ag,3.0
+Libertyville,14.0,Lake Forest,4.0
+LWE,14.0,Lockport,10.0
+LWW,23.0,LWC,8.0
+Maine West,15.0,VH,8.0
+Mundelein,19.0,Warren,12.0
+New Trier,15.0,GBS,4.0
+Niles West,14.0,HP,5.0
+Sandburg,16.0,H-F,6.0
+STC,9.0,Metea,6.0
+Von,18.0,Westinghouse,7.0
+Whitney Young,10.0,Lane,8.0
+York,14.0,Fremd,4.0
+Amundsen,15.0,Prosser,1.0
+Andrew,16.0,Shepard,4.0
+Brother Rice,19.0,St Ignatius,7.0
+BG,17.0,Meadows,10.0
+Brooks,16.0,Chicago Ag,11.0
+Conant,16.0,Hoffman,3.0
+Curie,25.0,Lindblom,8.0
+Fenwick,16.0,Mt Carmel,6.0
+Fremd,11.0,Schaumburg,10.0
+Hersey,12.0,Wheeling,3.0
+Kenwood,12.0,Solorio,8.0
+Oak Park,12.0,HC,8.0
+Palatine,12.0,Barrington,8.0
+Prospect,14.0,Elk Grove,12.0
+R-B,7.0,Morton,6.0
+St Patrick,18.0,Latin,5.0
+Amundsen,11.0,Northside,4.0
+Curie,10.0,BG,7.0
+Evanston,9.0,GBS,5.0
+H-F,16.0,Bremen,10.0
+LWW,16.0,Sandburg,13.0
+Mundelein,23.0,Lake Forest,5.0
+Maine South,12.0,GBN,3.0
+NC,14.0,Bradley,3.0
+NN,16.0,Metea,5.0
+Niles West,9.0,Loyola,7.0
+Schaumburg,16.0,Elk Grove,2.0
+Stevenson,27.0,Warren,8.0
+Taft,15.0,Senn,11.0
+Solorio,15.0,Prosser,1.0
+VH,15.0,HP,3.0
+Waubonsie,17.0,Neuqua,13.0
+Westinghouse,15.0,Leyden,13.0
+Barrington,13.0,Hersey,6.0
+Kenwood,23.0,Little Village,1.0
+McHenry,10.0,Hoffman,9.0
+Schaumburg,6.0,HC,5.0
+GBN,4.0,New Trier B,1.0
+Prospect,13.0,Conant,12.0
+New Trier B,10.0,Jones-Payton,4.0
+Brother Rice,21.0,Conant,12.0
+GBN,11.0,Jones-Payton,4.0
+Brother Rice,22.0,Prospect,7.0
+Lyons,8.0,LWE,6.0
+York,15.0,Neuqua,8.0
+Palatine,12.0,Oak Park,7.0
+St Rita,14.0,St Ignatius,6.0
+New Trier,13.0,Chaminade,2.0
+Lindbergh,8.0,Fenwick,5.0
+New Trier,12.0,Parkway Central,1.0
+Fenwick,14.0,DeSmet,7.0
+STC,7.0,Waubonsie,6.0
+Whitney Young,14.0,Sandburg,5.0
+NN,17.0,Evanston,6.0
+Stevenson,,Maine South,
+Whitney Young,11.0,STC,6.0
+NN,18.0,Stevenson,8.0
+Kenwood,10.0,Kennedy,8.0
+Kenwood,12.0,Chicago U,11.0
+Kenwood,8.0,Kennedy,7.0
+Solorio,15.0,Kenwood,10.0
+Lane,16.0,McHenry,2.0
+Lane,16.0,Elk Grove,1.0
+Lane,16.0,Hoffman,1.0
+McHenry,13.0,Lake Forest,2.0
+McHenry,16.0,Elk Grove,6.0
+Hoffman,20.0,Lake Forest,10.0
+Prospect,16.0,Jones-Payton,2.0
+GBN,6.0,Conant,1.0
+Brother Rice,18.0,New Trier B,4.0
+Conant,13.0,Jones-Payton,4.0
+Prospect,11.0,New Trier B,7.0
+Brother Rice,7.0,GBN,5.0
+Fremd,8.0,GBS,6.0
+Fremd,14.0,HP,2.0
+Fremd,9.0,HC,4.0
+GBS,11.0,HP,0.0
+GBS,4.0,HC,4.0
+HC,11.0,HP,2.0
+Libertyville,14.0,VH,7.0
+Barrington,14.0,Bradley,8.0
+Libertyville,11.0,Barrington,6.0
+VH,12.0,Bradley,11.0
+Barrington,17.0,VH,7.0
+Libertyville,16.0,Bradley,5.0
+New Trier,13.0,Lafayette,4.0
+SLUH,15.0,Fenwick,7.0
+New Trier,10.0,SLUH,9.0
+Fenwick,6.0,Parkway West,5.0
+Lyons,,St Rita,
+York,16.0,Oak Park,4.0
+LWE,15.0,St Ignatius,10.0
+Palatine,16.0,Neuqua,7.0
+Lyons,20.0,St Ignatius,2.0
+York,17.0,Palatine,7.0
+LWE,12.0,St Rita,2.0
+Neuqua,,Oak Park,
+Oak Park,,St Ignatius,
+Neuqua,10.0,St Rita,7.0
+Palatine,16.0,LWE,9.0
+York,13.0,Lyons,7.0
+Maine South,10.0,Evanston,6.0
+Stevenson,12.0,STC,4.0
+Evanston,12.0,Waubonsie,10.0
+NN,11.0,Whitney Young,8.0
+Maine South,14.0,Sandburg,6.0
+Stevenson,12.0,Whitney Young,9.0
+Waubonsie,14.0,Sandburg,6.0
+Evanston,9.0,Sandburg,4.0
+Maine South,12.0,Waubonsie,8.0
+Andrew,17.0,R-B,1.0
+Chicago U,11.0,Chicago Ag,9.0
+Curie,14.0,Solorio,3.0
+Hoffman,19.0,Wheeling,6.0
+Lindblom,14.0,Kenwood,11.0
+Maine West,15.0,Jones-Payton,4.0
+McHenry,17.0,Warren,7.0
+Neuqua,8.0,Oak Park,5.0
+NN,12.0,HC,3.0
+STC,20.0,Latin,2.0
+St Rita,12.0,St Ignatius,8.0
+Whitney Young,11.0,Northside,7.0
+BG,11.0,Loyola,6.0
+Brooks,14.0,Julian,8.0
+Chicago Ag,18.0,Little Village,5.0
+Evanston,8.0,GBN,3.0
+Fremd,19.0,Hoffman,5.0
+GBS,11.0,Deerfield,5.0
+Kennedy,18.0,Prosser,3.0
+Jones-Payton,8.0,Amundsen,6.0
+Lane,14.0,Taft,4.0
+Libertyville,7.0,Mundelein,4.0
+LWC,20.0,H-F,12.0
+LWW,19.0,Lockport,6.0
+NC,14.0,Metea,9.0
+NN,14.0,Waubonsie,6.0
+New Trier,13.0,Maine South,8.0
+Niles West,20.0,VH,14.0
+Sandburg,11.0,Bradley,9.0
+STC,11.0,McHenry,4.0
+Stevenson,17.0,Lake Forest,1.0
+Senn,16.0,Westinghouse,15.0
+St Rita,15.0,St Patrick,6.0
+York,20.0,Fenwick,6.0
+Amundsen,19.0,Westinghouse,11.0
+BG,11.0,Wheeling,4.0
+Evanston,12.0,Loyola,9.0
+Kennedy,15.0,Solorio,8.0
+Kenwood,17.0,Chicago Ag,7.0
+Lane,19.0,St Ignatius,4.0
+Lyons,10.0,HC,9.0
+Meadows,14.0,Elk Grove,6.0
+Oak Park,9.0,Fenwick,8.0
+Palatine,9.0,Conant,6.0
+Prospect,13.0,Hersey,10.0
+Schaumburg,12.0,Barrington,10.0
+Taft,7.0,Northside,5.0
+Von,22.0,Prosser,2.0
+Andrew,12.0,Sandburg,2.0
+Argo,9.0,Morton,2.0
+Barrington,23.0,VH,12.0
+Conant,19.0,Curie,9.0
+GBS,12.0,Niles West,5.0
+HC,15.0,Metea,8.0
+Lindblom,11.0,Brooks,8.0
+Lockport,5.0,Stagg,0.0
+LWC,,Bradley,
+LWW,17.0,H-F,3.0
+NC,12.0,STC,7.0
+Neuqua,11.0,St Rita,7.0
+Maine South,24.0,Maine West,10.0
+Meadows,16.0,Leyden,5.0
+Prospect,11.0,Maine East,2.0
+Schaumburg,16.0,Mundelein,7.0
+Solorio,15.0,Little Village,0.0
+St Patrick,8.0,Amundsen,7.0
+Stevenson,15.0,Libertyville,10.0
+Von,13.0,Senn,10.0
+Warren,16.0,Lake Forest,7.0
+Westinghouse,12.0,Chicago U,11.0
+Whitney Young,16.0,Jones-Payton,7.0
+Northside,10.0,Chicago U,5.0
+NC,9.0,HC,5.0
+York,10.0,GBS,2.0
+GBS,8.0,NC,7.0
+York,12.0,HC,5.0
+NN,8.0,Mundelein,2.0
+New Trier,15.0,Sandburg,5.0
+NN,18.0,Sandburg,1.0
+New Trier,10.0,Mundelein,3.0
+Taft,13.0,Kenwood,3.0
+Taft,7.0,Mather,3.0
+Kenwood,21.0,Chicago Ag,12.0
+LWE,15.0,Barrington,14.0
+LWE,19.0,McHenry,2.0
+LWE,15.0,Jones-Payton,5.0
+Barrington,16.0,McHenry,10.0
+Barrington,20.0,Jones-Payton,3.0
+Brother Rice,13.0,Andrew,8.0
+Brother Rice,22.0,Warren,7.0
+Brother Rice,11.0,St Rita,7.0
+GBN,7.0,St Rita,6.0
+GBN,14.0,Warren,9.0
+Andrew,20.0,Warren,5.0
+St Rita,13.0,Lockport,11.0
+Lockport,10.0,GBN,5.0
+BG,12.0,Maine East,4.0
+R-B,12.0,Maine East,5.0
+BG,14.0,R-B,4.0
+Palatine,9.0,Evanston,6.0
+Libertyville,9.0,Evanston,6.0
+Palatine,11.0,Deerfield,2.0
+Palatine,14.0,Libertyville,5.0
+Evanston,13.0,Deerfield,4.0
+Libertyville,8.0,Deerfield,3.0
+Fremd,8.0,Loyola,3.0
+Neuqua,10.0,Curie,5.0
+Neuqua,13.0,Loyola,6.0
+Neuqua,15.0,Fremd,9.0
+Loyola,11.0,Curie,6.0
+Fremd,15.0,Curie,5.0
+NC,12.0,Mundelein,10.0
+HC,15.0,Sandburg,3.0
+New Trier,14.0,GBS,2.0
+York,8.0,NN,7.0
+Sandburg,12.0,Mundelein,7.0
+NC,13.0,HC,7.0
+NN,11.0,GBS,5.0
+New Trier,8.0,York,4.0
+Shepard,14.0,Kenwood,6.0
+Shepard,10.0,Elk Grove,5.0
+Kenwood,13.0,Elk Grove,3.0
+Mt Carmel,8.0,Bremen,5.0
+Mt Carmel,12.0,Argo,6.0
+Bremen,10.0,Argo,9.0
+Kenwood,14.0,Argo,10.0
+Bremen,13.0,Elk Grove,3.0
+Mt Carmel,11.0,Shepard,6.0
+Niles West,8.0,HP,2.0
+Niles West,9.0,Metea,6.0
+Waubonsie,13.0,Niles West,6.0
+Waubonsie,6.0,Metea,5.0
+Andrew,19.0,Argo,5.0
+Curie,16.0,Kennedy,7.0
+Fenwick,9.0,Morton,2.0
+Libertyville,9.0,BG,4.0
+Palatine,14.0,Hersey,6.0
+Prospect,18.0,Hoffman,11.0
+Schaumburg,17.0,VH,10.0
+St Patrick,8.0,Meadows,4.0
+Warren,11.0,R-B,6.0
+Andrew,19.0,LWC,8.0
+BG,15.0,McHenry,5.0
+Brother Rice,14.0,Bremen,3.0
+Chicago U,14.0,Latin,7.0
+H-F,10.0,Bradley,9.0
+HP,7.0,Deerfield,6.0
+Lane,7.0,GBS,4.0
+Libertyville,16.0,Warren,5.0
+Lindblom,21.0,Kenwood,12.0
+LWE,21.0,Sandburg,4.0
+Maine East,11.0,Elk Grove,9.0
+Maine South,11.0,Loyola,6.0
+NC,15.0,Waubonsie,8.0
+NN,22.0,Neuqua,12.0
+Palatine,14.0,Wheeling,5.0
+Shepard,25.0,Leyden,9.0
+Stevenson,11.0,Mundelein,6.0
+Barrington,13.0,Fremd,10.0
+Bremen,7.0,Shepard,6.0
+Elk Grove,12.0,Wheeling,10.0
+BG,16.0,Hersey,7.0
+Kennedy,15.0,Westinghouse,6.0
+Lane,11.0,Evanston,9.0
+Lindblom,10.0,Kennedy,9.0
+Maine West,10.0,GBN,8.0
+Metea,12.0,Sandburg,11.0
+Neuqua,9.0,STC,8.0
+Oak Park,13.0,Loyola,10.0
+Palatine,16.0,Hoffman,1.0
+Prospect,11.0,Meadows,10.0
+Schaumburg,13.0,Conant,2.0
+St Patrick,12.0,Curie,4.0
+Whitney Young,13.0,St Ignatius,11.0
+Andrew,15.0,H-F,3.0
+Conant,14.0,Wheeling,12.0
+Libertyville,10.0,HP,2.0
+Lindblom,8.0,Amundsen,6.0
+Lockport,12.0,Sandburg,10.0
+LWE,15.0,LWC,7.0
+LWW,18.0,Bradley,4.0
+Maine East,8.0,Leyden,7.0
+Meadows,9.0,Hoffman,8.0
+Mt Carmel,21.0,Bremen,15.0
+NC,12.0,Whitney Young,10.0
+NN,16.0,Fremd,9.0
+VH,20.0,Warren,19.0
+Shepard,14.0,Argo,6.0
+St Rita,11.0,Curie,7.0
+Amundsen,11.0,St Ignatius,10.0
+BG,14.0,VH,10.0
+GBS,13.0,Prospect,4.0
+Evanston,6.0,STC,4.0
+GBS,16.0,Lake Forest,2.0
+Palatine,13.0,GBN,3.0
+STC,9.0,Hersey,4.0
+Loyola,8.0,GBN,7.0
+Neuqua,11.0,Metea,6.0
+Brother Rice,11.0,Schaumburg,3.0
+Prospect,19.0,Lake Forest,7.0
+Palatine,11.0,Loyola,6.0
+Evanston,10.0,Hersey,2.0
+Hersey,18.0,Lake Forest,7.0
+STC,12.0,Prospect,2.0
+STC,20.0,Loyola,7.0
+Palatine,7.0,GBS,6.0
+Evanston,8.0,Palatine,6.0
+Evanston,11.0,GBS,5.0
+Oak Park,14.0,Bremen,1.0
+Bremen,10.0,Morton,1.0
+Barrington,15.0,Bremen,4.0
+Lane,10.0,Barrington,9.0
+Barrington,14.0,Sandburg,7.0
+Lane,10.0,Oak Park,7.0
+HC,9.0,Lane,7.0
+HC,11.0,Curie,5.0
+HC,,Morton,
+Oak Park,16.0,Curie,10.0
+Curie,9.0,Sandburg,8.0
+Sandburg,11.0,Morton,0.0
+LWW,18.0,Warren,4.0
+Fremd,15.0,McHenry,3.0
+LWW,14.0,McHenry,5.0
+Fremd,16.0,Warren,7.0
+McHenry,7.0,Warren,6.0
+Fremd,11.0,LWW,6.0
+Lyons,7.0,Fenwick,6.0
+Lyons,20.0,Niles West,4.0
+Fenwick,15.0,Niles West,8.0
+Brother Rice,12.0,Metea,5.0
+Brother Rice,12.0,Neuqua,7.0
+Schaumburg,11.0,Metea,4.0
+Neuqua,9.0,Schaumburg,8.0
+Mundelein,12.0,Conant,4.0
+NC,13.0,H-F,3.0
+NC,11.0,Mundelein,5.0
+Conant,11.0,H-F,10.0
+NC,15.0,Conant,1.0
+Mundelein,12.0,H-F,6.0
+Stevenson,12.0,St Rita,7.0
+York,6.0,Stevenson,5.0
+St Rita,5.0,York,4.0
+GBN,12.0,Prospect,9.0
+H-F,13.0,Shepard,6.0
+Hoffman,15.0,Lake Forest,5.0
+LWW,18.0,R-B,1.0
+Maine West,12.0,Deerfield,5.0
+St Ignatius,18.0,Chicago U,11.0
+VH,16.0,Latin,5.0
+York,18.0,Hersey,6.0
+BG,11.0,Maine West,10.0
+Brooks,17.0,Kenwood,10.0
+Brother Rice,18.0,LWW,14.0
+HP,13.0,Leyden,7.0
+LWE,15.0,Metea,4.0
+Maine South,13.0,Waubonsie,9.0
+Mt Carmel,19.0,Latin,7.0
+NC,12.0,Loyola,7.0
+Palatine,10.0,STC,7.0
+Shepard,11.0,R-B,10.0
+Schaumburg,13.0,Deerfield,0.0
+St Rita,10.0,Sandburg,7.0
+Taft,9.0,Amundsen,5.0
+Warren,7.0,Maine East,5.0
