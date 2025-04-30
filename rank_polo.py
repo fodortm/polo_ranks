@@ -5,6 +5,7 @@ import math
 from collections import defaultdict
 from functools import cmp_to_key
 import streamlit as st
+import altair as alt
 
 # ---------------- Constants ---------------- #
 SCORES_CSV = "scores.csv"
@@ -110,44 +111,64 @@ def compute_pythag(stats,exp=2):
         p[t]=gf**exp/(gf**exp+ga**exp) if gf+ga>0 else 0
     return p
 
-def compute_adjusted_pythag(games,stats,exp=2):
-    adj_gf,adj_ga=defaultdict(float),defaultdict(float)
+# Logistic scaling function
+def logistic(x, k, x0):
+    return 1/(1 + math.exp(-k * (x - x0)))
+
+# Adjusted Pythagorean with logistic blend
+def compute_adjusted_pythag(games, stats, exp=2, k=10, x0=0.5):
+    adj_ms = defaultdict(float)
+    adj_os = defaultdict(float)
     for _,r in games.iterrows():
-        for me,opp,ms,os in [(r.team1,r.team2,r.score1,r.score2),(r.team2,r.team1,r.score2,r.score1)]:
-            weight=stats[opp]['win_pct']**3
-            adj_gf[me]+=ms*weight; adj_ga[me]+=os*weight
-    adj={}
+        for me,opp,ms,os_ in [(r.team1,r.team2,r.score1,r.score2),(r.team2,r.team1,r.score2,r.score1)]:
+            # strength factor via logistic on opponent win_pct
+            win_pct = stats[opp]['win_pct']
+            s = logistic(win_pct, k, x0)
+            # expected goals
+            st1, st2 = stats[me], stats[opp]
+            if st1['games'] and st2['games']:
+                E_ms = (st1['gf']/st1['games'] + st2['ga']/st2['games']) / 2
+                E_os = (st2['gf']/st2['games'] + st1['ga']/st1['games']) / 2
+            else:
+                E_ms = E_os = 1
+            adj_ms[me] += E_ms + (ms - E_ms) * s
+            adj_os[me] += E_os + (os_ - E_os) * s
+    adj = {}
     for t,st in stats.items():
-        g=st['games']
-        agf=adj_gf[t]/g if g else 0; aga=adj_ga[t]/g if g else 0
-        adj[t]=agf**exp/(agf**exp+aga**exp) if agf+aga>0 else 0
+        g = st['games']
+        agf = adj_ms[t]/g if g else 0
+        aga = adj_os[t]/g if g else 0
+        adj[t] = agf**exp/(agf**exp + aga**exp) if agf+aga>0 else 0
     return adj
 
 # ---------------- Rankings ---------------- #
 def rank_win_pct(stats,h2h):
     def cmp(a,b):
-        if stats[a]['win_pct']!=stats[b]['win_pct']: return -1 if stats[a]['win_pct']>stats[b]['win_pct'] else 1
-        h=h2h.get((a,b),{'wins':0,'games':0});
+        if stats[a]['win_pct']!=stats[b]['win_pct']:
+            return -1 if stats[a]['win_pct']>stats[b]['win_pct'] else 1
+        h=h2h.get((a,b),{'wins':0,'games':0})
         if h['games']:
             p=h['wins']/h['games']
             if p!=0.5: return -1 if p>0.5 else 1
         return (stats[b]['gd'] - stats[a]['gd'])
     return sorted(stats.keys(),key=cmp_to_key(cmp))
-def rank_pythag(stats,p): return sorted(stats.keys(),key=lambda t:p[t],reverse=True)
-def rank_adj_pyth(stats,games,h2h):
-    vals=compute_adjusted_pythag(games,stats)
-    order=sorted(stats.keys(),key=lambda t:vals[t],reverse=True)
-    final=[]
-    eps=1e-4
+def rank_pythag(stats,p):
+    return sorted(stats.keys(),key=lambda t:p[t],reverse=True)
+
+def rank_adj_pyth(stats,games,h2h,k=10,x0=0.5):
+    vals = compute_adjusted_pythag(games,stats,k=k,x0=x0)
+    order = sorted(stats.keys(),key=lambda t:vals[t],reverse=True)
+    final = []
+    eps = 1e-4
     for t in order:
         if final:
-            prev=final[-1]
+            prev = final[-1]
             if abs(vals[prev]-vals[t])<eps:
                 h=h2h.get((t,prev),{'wins':0,'games':0})
-                if h['games'] and h['wins']/h['games']>0.5: final[-1],t=t,prev
+                if h['games'] and h['wins']/h['games']>0.5:
+                    final[-1],t = t,prev
         final.append(t)
-    return final,vals
-
+    return final, vals
 def compute_elo(games,initial=1500,k=32):
     teams=set(games['team1']).union(games['team2'])
     R={t:initial for t in teams}
@@ -157,10 +178,17 @@ def compute_elo(games,initial=1500,k=32):
         aa,ab = (1,0) if sa>sb else ((0,1) if sb>sa else (0.5,0.5))
         R[a]+=k*(aa-ea); R[b]+=k*(ab-eb)
     return R
-def rank_elo(stats,elo): return sorted(stats.keys(),key=lambda t:elo[t],reverse=True)
+def rank_elo(stats,elo):
+    return sorted(stats.keys(),key=lambda t:elo[t],reverse=True)
 
 # ---------------- App ---------------- #
 st.set_page_config(page_title="Polo Dashboard",layout="wide")
+
+# Sidebar settings
+st.sidebar.header("Data & Model Settings")
+k = st.sidebar.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=10)
+x0 = st.sidebar.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
+
 # Load & parse
 raw_games = load_scores()
 uploader = st.sidebar.file_uploader("Upload scores .txt", type="txt")
@@ -169,47 +197,50 @@ if uploader:
     if not new_df.empty:
         raw_games = update_scores(raw_games, new_df)
 
-# Initial stats only on games with explicit scores to infer defaults
+# Initial stats
 scored_games = raw_games.dropna(subset=['score1'])
 initial_stats, _ = compute_stats(scored_games)
-# Include any teams without explicit games (to support inference for all)
 all_teams = set(raw_games['team1']).union(raw_games['team2'])
 for t in all_teams:
     if t not in initial_stats:
         initial_stats[t] = {'wins':0,'losses':0,'ties':0,'gf':0,'ga':0,'games':0,'opponents':[]}
-# Infer missing 'd.' game scores using initial_stats
+# Infer defaults
 games_inferred = infer_default_scores(raw_games, initial_stats)
+# Final stats
+stats,h2h = compute_stats(games_inferred)
+sos = compute_sos(stats)
+py = compute_pythag(stats)
+adj_vals = compute_adjusted_pythag(games_inferred, stats, k=k, x0=x0)
+adj_ord, _ = rank_adj_pyth(stats, games_inferred, h2h, k=k, x0=x0)
+elo = compute_elo(games_inferred)
+# Orders & filters
+win_ord = rank_win_pct(stats,h2h)
+py_ord = rank_pythag(stats,py)
+elo_ord = rank_elo(stats,elo)
+maxg = max(st['games'] for st in stats.values()) if stats else 0
+thr = maxg/2
+win_ord = [t for t in win_ord if stats[t]['games']>=thr]
+py_ord  = [t for t in py_ord  if stats[t]['games']>=thr]
+adj_ord = [t for t in adj_ord if stats[t]['games']>=thr]
+elo_ord = [t for t in elo_ord if stats[t]['games']>=thr]
+teams    = sorted(stats.keys())
 
-# Compute final stats and head-to-head with inferred games
-stats, h2h = compute_stats(games_inferred)
-stats,h2h=compute_stats(games_inferred)
-sos=compute_sos(stats)
-py=compute_pythag(stats)
-adj=compute_adjusted_pythag(games_inferred,stats)
-elo=compute_elo(games_inferred)
-# Orders & filter
-win_ord=rank_win_pct(stats,h2h)
-py_ord=rank_pythag(stats,py)
-adj_ord,adj_vals=rank_adj_pyth(stats,games_inferred,h2h)
-elo_ord=rank_elo(stats,elo)
-maxg=max(st['games'] for st in stats.values()) if stats else 0;thr=maxg/2
-win_ord=[t for t in win_ord if stats[t]['games']>=thr]
-py_ord=[t for t in py_ord if stats[t]['games']>=thr]
-adj_ord=[t for t in adj_ord if stats[t]['games']>=thr]
-elo_ord=[t for t in elo_ord if stats[t]['games']>=thr]
-teams=sorted(stats.keys())
-# Profile select
+# Team profile selection
 st.sidebar.header("Team Profile")
 te=st.sidebar.selectbox("Select Team",teams,index=teams.index("Loyola") if "Loyola" in teams else 0)
-# Rank numbers
-r_win=win_ord.index(te)+1 if te in win_ord else None
-r_py=py_ord.index(te)+1 if te in py_ord else None
-r_adj=adj_ord.index(te)+1 if te in adj_ord else None
-r_elo=elo_ord.index(te)+1 if te in elo_ord else None
-ranks=[r for r in [r_win,r_py,r_adj,r_elo] if r]
-r_avg=round(sum(ranks)/len(ranks),2) if ranks else None
-# Tabs
-tabs=st.tabs(["Profile","Win%","Pythag","AdjPyth","Elo","Avg"])
+# Compute individual ranks
+ranks = {}
+ranks['win']  = win_ord.index(te)+1 if te in win_ord else None
+ranks['py']   = py_ord.index(te)+1 if te in py_ord else None
+ranks['adj']  = adj_ord.index(te)+1 if te in adj_ord else None
+ranks['elo']  = elo_ord.index(te)+1 if te in elo_ord else None
+ranks_list   = [v for v in ranks.values() if v]
+r_avg = round(sum(ranks_list)/len(ranks_list),2) if ranks_list else None
+
+# Tabs & content
+tabs = st.tabs(["Profile","Win%","Pythag","AdjPyth","Elo","Avg"])
+
+# Profile tab
 with tabs[0]:
     st.subheader(f"Profile: {te}")
     st.table(pd.DataFrame.from_dict({
@@ -218,52 +249,69 @@ with tabs[0]:
         'GD/Game':f"{(stats[te]['gf']-stats[te]['ga'])/stats[te]['games']:.2f}",
         'Win %':f"{stats[te]['win_pct']:.3f}",
         'SOS':f"{sos[te]:.3f}",
-        'Rank Win%':r_win,'Rank Pythag':r_py,'Rank Adj':r_adj,'Rank Elo':r_elo,'Avg':r_avg
+        'Rank Win%':ranks['win'],'Rank Pythag':ranks['py'],
+        'Rank Adj':ranks['adj'],'Rank Elo':ranks['elo'],'Avg':r_avg
     },orient='index',columns=['Value']))
     opp=st.selectbox("Compare vs",[t for t in teams if t!=te])
-    st.write(f"{opp} Ranks: Win% #{win_ord.index(opp)+1 if opp in win_ord else '-'} (SOS {sos[opp]:.3f}), "
-             f"Pyth #{py_ord.index(opp)+1 if opp in py_ord else '-'} (SOS {sos[opp]:.3f}), "
-             f"AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'} (SOS {sos[opp]:.3f}), "
-             f"Elo #{elo_ord.index(opp)+1 if opp in elo_ord else '-'}")
-    h=h2h.get((te,opp),{'wins':0,'games':0});st.write(f"H2H: {h['wins']}-{h['games']-h['wins']} in {h['games']} games")
-    com=set(stats[te]['opponents'])&set(stats[opp]['opponents'])
-    if com:
-        dfc=[]
-        for c in com:
-            dfc.append({'Opp':c,
-                        f'{te} W':sum(1 for r in games_inferred.itertuples() if (r.team1==te and r.team2==c and r.score1>r.score2) or (r.team2==te and r.team1==c and r.score2>r.score1)),
-                        f'{te} L':sum(1 for r in games_inferred.itertuples() if (r.team1==te and r.team2==c and r.score1<r.score2) or (r.team2==te and r.team1==c and r.score2<r.score1)),
-                        f'{opp} W':sum(1 for r in games_inferred.itertuples() if (r.team1==opp and r.team2==c and r.score1>r.score2) or (r.team2==opp and r.team1==c and r.score2>r.score1)),
-                        f'{opp} L':sum(1 for r in games_inferred.itertuples() if (r.team1==opp and r.team2==c and r.score1<r.score2) or (r.team2==opp and r.team1==c and r.score2<r.score1))})
-        st.dataframe(pd.DataFrame(dfc))
-    else: st.write("No common opponents.")
+    h = h2h.get((te,opp),{'wins':0,'games':0})
+    st.markdown(f"**H2H**: {h['wins']}-{h['games']-h['wins']} in {h['games']} games")
     st.markdown("**Full Schedule**")
-    sch=[]
-    for r in games_inferred.itertuples():
-        if r.team1==te or r.team2==te:
-            o=r.team2 if r.team1==te else r.team1
-            s=r.score1 if r.team1==te else r.score2
-            a=r.score2 if r.team1==te else r.score1
-            sch.append({'Opp':o,'Scored':s,'Allowed':a})
+    sch=[{'Opp':(r.team2 if r.team1==te else r.team1),
+          'Scored':(r.score1 if r.team1==te else r.score2),
+          'Allowed':(r.score2 if r.team1==te else r.score1)} for r in games_inferred.itertuples() if r.team1==te or r.team2==te]
     st.dataframe(pd.DataFrame(sch))
+
+# Win % tab
 with tabs[1]:
     st.subheader("Rankings by Win %")
-    st.dataframe(pd.DataFrame({'Team':win_ord,'Win %':[f"{stats[t]['win_pct']:.3f}" for t in win_ord],'SOS':[f"{sos[t]:.3f}" for t in win_ord]}))
+    df_win=pd.DataFrame({'Team':win_ord,
+                         'Win %':[f"{stats[t]['win_pct']:.3f}" for t in win_ord],
+                         'SOS':[f"{sos[t]:.3f}" for t in win_ord]})
+    st.dataframe(df_win)
+
+# Pythagorean tab
 with tabs[2]:
     st.subheader("Rankings by Pythagorean")
-    st.dataframe(pd.DataFrame({'Team':py_ord,'Exp %':[f"{py[t]:.3f}" for t in py_ord],'SOS':[f"{sos[t]:.3f}" for t in py_ord]}))
+    df_py=pd.DataFrame({'Team':py_ord,
+                        'Exp %':[f"{py[t]:.3f}" for t in py_ord],
+                        'SOS':[f"{sos[t]:.3f}" for t in py_ord]})
+    st.dataframe(df_py)
+
+# Adjusted Pythagorean tab
 with tabs[3]:
     st.subheader("Rankings by Adjusted Pythagorean")
-    st.dataframe(pd.DataFrame({'Team':adj_ord,'AdjPyth %':[f"{adj_vals[t]:.3f}" for t in adj_ord],'SOS':[f"{sos[t]:.3f}" for t in adj_ord]}))
+    df_adj=pd.DataFrame({'Team':adj_ord,
+                         'AdjPyth %':[f"{adj_vals[t]:.3f}" for t in adj_ord],
+                         'SOS':[f"{sos[t]:.3f}" for t in adj_ord]})
+    st.dataframe(df_adj)
+    # Bar chart of adjusted Pythag
+    chart_data = pd.Series({t: adj_vals[t] for t in adj_ord}, name='AdjPyth %')
+    st.bar_chart(chart_data)
+    # Scatter of SOS vs AdjPyth
+    df_sc = pd.DataFrame({'Team':list(adj_vals.keys()),
+                          'SOS':[sos[t] for t in adj_vals.keys()],
+                          'AdjPyth':[adj_vals[t] for t in adj_vals.keys()]})
+    scatter = alt.Chart(df_sc).mark_circle(size=60).encode(
+        x='SOS', y='AdjPyth', tooltip=['Team','SOS','AdjPyth']
+    )
+    st.altair_chart(scatter, use_container_width=True)
+
+# Elo tab
 with tabs[4]:
     st.subheader("Rankings by Elo")
-    st.dataframe(pd.DataFrame({'Team':elo_ord,'Elo':[f"{elo[t]:.1f}" for t in elo_ord],'SOS':[f"{sos[t]:.3f}" for t in elo_ord]}))
+    df_elo=pd.DataFrame({'Team':elo_ord,
+                         'Elo':[f"{elo[t]:.1f}" for t in elo_ord],
+                         'SOS':[f"{sos[t]:.3f}" for t in elo_ord]})
+    st.dataframe(df_elo)
+
+# Average composite tab
 with tabs[5]:
     st.subheader("Rankings by Avg Composite")
-    comp=[]
-    for t in teams:
-        if stats[t]['games']>=thr:
-            w=win_ord.index(t)+1; p=py_ord.index(t)+1; a=adj_ord.index(t)+1; e=elo_ord.index(t)+1
-            comp.append((t,w,p,a,e,round((w+p+a+e)/4,2),sos[t]))
+    comp=[(t,
+           win_ord.index(t)+1, py_ord.index(t)+1,
+           adj_ord.index(t)+1, elo_ord.index(t)+1,
+           round((win_ord.index(t)+1 + py_ord.index(t)+1 + adj_ord.index(t)+1 + elo_ord.index(t)+1)/4,2),
+           sos[t])
+          for t in teams if stats[t]['games']>=thr]
     df_avg=pd.DataFrame(comp,columns=['Team','Win','Pyth','AdjPyth','Elo','Avg','SOS']).sort_values('Avg')
     st.dataframe(df_avg)
