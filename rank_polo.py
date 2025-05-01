@@ -197,9 +197,6 @@ if uploader:
     if not new_df.empty:
         raw_games = update_scores(raw_games, new_df)
 
-# After loading scores
-st.write("Debug - Number of games loaded:", len(raw_games))
-
 # Initial stats
 scored_games = raw_games.dropna(subset=['score1'])
 initial_stats, _ = compute_stats(scored_games)
@@ -263,14 +260,10 @@ with tabs[0]:
              f"AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'} (SOS {sos[opp]:.3f}), "
              f"Elo #{elo_ord.index(opp)+1 if opp in elo_ord else '-'}")
     st.markdown("**Common Opponents**")
-    st.write("Debug - Data types:")
-    st.write("games_inferred types:", games_inferred.dtypes)
-    st.write("Sample of games_inferred:", games_inferred.head())
     com = set(stats[te]['opponents']) & set(stats[opp]['opponents'])
     if com:
         dfc = []
         for c in com:
-            st.write(f"Processing opponent: {c}")
             try:
                 wins_te = sum(1 for r in games_inferred.itertuples() 
                             if (r.team1==te and r.team2==c and r.score1>r.score2) 
