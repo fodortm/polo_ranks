@@ -197,6 +197,9 @@ if uploader:
     if not new_df.empty:
         raw_games = update_scores(raw_games, new_df)
 
+# After loading scores
+st.write("Debug - Number of games loaded:", len(raw_games))
+
 # Initial stats
 scored_games = raw_games.dropna(subset=['score1'])
 initial_stats, _ = compute_stats(scored_games)
@@ -260,17 +263,47 @@ with tabs[0]:
              f"AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'} (SOS {sos[opp]:.3f}), "
              f"Elo #{elo_ord.index(opp)+1 if opp in elo_ord else '-'}")
     st.markdown("**Common Opponents**")
-    com=set(stats[te]['opponents'])&set(stats[opp]['opponents'])
+    st.write("Debug - Data types:")
+    st.write("games_inferred types:", games_inferred.dtypes)
+    st.write("Sample of games_inferred:", games_inferred.head())
+    com = set(stats[te]['opponents']) & set(stats[opp]['opponents'])
     if com:
-        dfc=[]
+        dfc = []
         for c in com:
-            dfc.append({'Opp':c,
-                        f'{te} W':sum(1 for r in games_inferred.itertuples() if (r.team1==te and r.team2==c and r.score1>r.score2) or (r.team2==te and r.team1==c and r.score2>r.score1)),
-                        f'{te} L':sum(1 for r in games_inferred.itertuples() if (r.team1==te and r.team2==c and r.score1<r.score2) or (r.team2==te and r.team1==c and r.score2<r.score1)),
-                        f'{opp} W':sum(1 for r in games_inferred.itertuples() if (r.team1==opp and r.team2==c and r.score1>r.score2) or (r.team2==opp and r.team1==c and r.score2>r.score1)),
-                        f'{opp} L':sum(1 for r in games_inferred.itertuples() if (r.team1==opp and r.team2==c and r.score1<r.score2) or (r.team2==opp and r.team1==c and r.score2<r.score1))})
-        st.dataframe(pd.DataFrame(dfc))
-    else: 
+            st.write(f"Processing opponent: {c}")
+            try:
+                wins_te = sum(1 for r in games_inferred.itertuples() 
+                            if (r.team1==te and r.team2==c and r.score1>r.score2) 
+                            or (r.team2==te and r.team1==c and r.score2>r.score1))
+                losses_te = sum(1 for r in games_inferred.itertuples() 
+                              if (r.team1==te and r.team2==c and r.score1<r.score2) 
+                              or (r.team2==te and r.team1==c and r.score2<r.score1))
+                wins_opp = sum(1 for r in games_inferred.itertuples() 
+                             if (r.team1==opp and r.team2==c and r.score1>r.score2) 
+                             or (r.team2==opp and r.team1==c and r.score2>r.score1))
+                losses_opp = sum(1 for r in games_inferred.itertuples() 
+                               if (r.team1==opp and r.team2==c and r.score1<r.score2) 
+                               or (r.team2==opp and r.team1==c and r.score2<r.score1))
+                
+                dfc.append({
+                    'Opp': c,
+                    f'{te} W': wins_te,
+                    f'{te} L': losses_te,
+                    f'{opp} W': wins_opp,
+                    f'{opp} L': losses_opp
+                })
+            except Exception as e:
+                st.error(f"Error processing opponent {c}: {str(e)}")
+        
+        if dfc:  # Only create DataFrame if we have data
+            try:
+                df_common = pd.DataFrame(dfc)
+                st.dataframe(df_common)
+            except Exception as e:
+                st.error(f"Error creating DataFrame: {str(e)}")
+        else:
+            st.write("No common opponent data available")
+    else:
         st.write("No common opponents.")
     st.markdown("**Full Schedule**")
     sch=[{'Opp':(r.team2 if r.team1==te else r.team1),
