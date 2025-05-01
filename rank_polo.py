@@ -255,6 +255,23 @@ with tabs[0]:
     opp=st.selectbox("Compare vs",[t for t in teams if t!=te])
     h = h2h.get((te,opp),{'wins':0,'games':0})
     st.markdown(f"**H2H**: {h['wins']}-{h['games']-h['wins']} in {h['games']} games")
+    st.write(f"{opp} Ranks: Win% #{win_ord.index(opp)+1 if opp in win_ord else '-'} (SOS {sos[opp]:.3f}), "
+             f"Pyth #{py_ord.index(opp)+1 if opp in py_ord else '-'} (SOS {sos[opp]:.3f}), "
+             f"AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'} (SOS {sos[opp]:.3f}), "
+             f"Elo #{elo_ord.index(opp)+1 if opp in elo_ord else '-'}")
+    st.markdown("**Common Opponents**")
+    com=set(stats[te]['opponents'])&set(stats[opp]['opponents'])
+    if com:
+        dfc=[]
+        for c in com:
+            dfc.append({'Opp':c,
+                        f'{te} W':sum(1 for r in games_inferred.itertuples() if (r.team1==te and r.team2==c and r.score1>r.score2) or (r.team2==te and r.team1==c and r.score2>r.score1)),
+                        f'{te} L':sum(1 for r in games_inferred.itertuples() if (r.team1==te and r.team2==c and r.score1<r.score2) or (r.team2==te and r.team1==c and r.score2<r.score1)),
+                        f'{opp} W':sum(1 for r in games_inferred.itertuples() if (r.team1==opp and r.team2==c and r.score1>r.score2) or (r.team2==opp and r.team1==c and r.score2>r.score1)),
+                        f'{opp} L':sum(1 for r in games_inferred.itertuples() if (r.team1==opp and r.team2==c and r.score1<r.score2) or (r.team2==opp and r.team1==c and r.score2<r.score1))})
+        st.dataframe(pd.DataFrame(dfc))
+    else: 
+        st.write("No common opponents.")
     st.markdown("**Full Schedule**")
     sch=[{'Opp':(r.team2 if r.team1==te else r.team1),
           'Scored':(r.score1 if r.team1==te else r.score2),
