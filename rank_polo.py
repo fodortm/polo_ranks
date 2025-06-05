@@ -35,6 +35,7 @@ def parse_scores_text(text):
     return pd.DataFrame(records)
 
 # ---------------- I/O ---------------- #
+@st.cache_data
 def load_scores():
     try:
         return pd.read_csv(SCORES_CSV)
@@ -44,12 +45,14 @@ def load_scores():
 def save_scores(df):
     df.to_csv(SCORES_CSV, index=False)
 
+@st.cache_data
 def update_scores(existing, new_df):
     combined = pd.concat([existing, new_df], ignore_index=True).drop_duplicates().reset_index(drop=True)
     save_scores(combined)
     return combined
 
 # ---------------- Inference ---------------- #
+@st.cache_data
 def infer_default_scores(games_df, stats):
     df = games_df.copy()
     mask = df['score1'].isna()
@@ -70,6 +73,7 @@ def infer_default_scores(games_df, stats):
     return df
 
 # ---------------- Stats ---------------- #
+@st.cache_data
 def compute_stats(games):
     stats = {}
     h2h = defaultdict(lambda: {'wins': 0, 'games': 0, 'gf': 0, 'ga': 0})
@@ -99,6 +103,7 @@ def compute_stats(games):
     return stats,h2h
 
 # ---------------- Metrics ---------------- #
+@st.cache_data
 def compute_sos(stats):
     sos={}
     for t,st in stats.items():
@@ -106,6 +111,7 @@ def compute_sos(stats):
         sos[t]=sum(stats[o]['win_pct'] for o in opps)/len(opps) if opps else 0
     return sos
 
+@st.cache_data
 def compute_pythag(stats,exp=2):
     p={}
     for t,st in stats.items():
@@ -118,6 +124,7 @@ def logistic(x, k, x0):
     return 1/(1 + math.exp(-k * (x - x0)))
 
 # Adjusted Pythagorean with logistic blend
+@st.cache_data
 def compute_adjusted_pythag(games, stats, exp=2, k=10, x0=0.5):
     adj_ms = defaultdict(float)
     adj_os = defaultdict(float)
@@ -144,6 +151,7 @@ def compute_adjusted_pythag(games, stats, exp=2, k=10, x0=0.5):
     return adj
 
 # ---------------- Rankings ---------------- #
+@st.cache_data
 def rank_win_pct(stats,h2h):
     def cmp(a,b):
         if stats[a]['win_pct']!=stats[b]['win_pct']:
@@ -154,6 +162,7 @@ def rank_win_pct(stats,h2h):
             if p!=0.5: return -1 if p>0.5 else 1
         return (stats[b]['gd'] - stats[a]['gd'])
     return sorted(stats.keys(),key=cmp_to_key(cmp))
+@st.cache_data
 def rank_pythag(stats,p):
     return sorted(stats.keys(),key=lambda t:p[t],reverse=True)
 
@@ -171,6 +180,7 @@ def rank_adj_pyth(stats,games,h2h,k=10,x0=0.5):
                     final[-1],t = t,prev
         final.append(t)
     return final, vals
+@st.cache_data
 def compute_elo(games,initial=1500,k=32):
     teams=set(games['team1']).union(games['team2'])
     R={t:initial for t in teams}
@@ -180,6 +190,7 @@ def compute_elo(games,initial=1500,k=32):
         aa,ab = (1,0) if sa>sb else ((0,1) if sb>sa else (0.5,0.5))
         R[a]+=k*(aa-ea); R[b]+=k*(ab-eb)
     return R
+@st.cache_data
 def rank_elo(stats,elo):
     return sorted(stats.keys(),key=lambda t:elo[t],reverse=True)
 
@@ -400,16 +411,16 @@ def main():
 
     # Sidebar settings
     st.sidebar.header("Data & Model Settings")
-    k = st.sidebar.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=10)
-    x0 = st.sidebar.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
-    
-    # Load & parse
-    raw_games = load_scores()
-    uploader = st.sidebar.file_uploader("Upload scores .txt", type="txt")
-    if uploader:
-        new_df = parse_scores_text(uploader.getvalue().decode())
-        if not new_df.empty:
-            raw_games = update_scores(raw_games, new_df)
+    with st.sidebar.expander("Upload Games"):
+        uploader = st.file_uploader("Upload scores .txt", type="txt")
+        raw_games = load_scores()
+        if uploader:
+            new_df = parse_scores_text(uploader.getvalue().decode())
+            if not new_df.empty:
+                raw_games = update_scores(raw_games, new_df)
+    with st.sidebar.expander("Advanced Settings", expanded=False):
+        k = st.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=10)
+        x0 = st.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
     
     # Initial stats
     scored_games = raw_games.dropna(subset=['score1'])
@@ -529,6 +540,8 @@ def main():
                              'Win %':[f"{stats[t]['win_pct']:.3f}" for t in win_ord],
                              'SOS':[f"{sos[t]:.3f}" for t in win_ord]})
         st.dataframe(df_win)
+        chart_data=pd.DataFrame({'Team':win_ord,'Win %':[stats[t]['win_pct'] for t in win_ord]})
+        st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Win %'), use_container_width=True)
     
     # Pythagorean tab
     with tabs[2]:
@@ -537,6 +550,8 @@ def main():
                             'Exp %':[f"{py[t]:.3f}" for t in py_ord],
                             'SOS':[f"{sos[t]:.3f}" for t in py_ord]})
         st.dataframe(df_py)
+        chart_data=pd.DataFrame({'Team':py_ord,'Pythag':[py[t] for t in py_ord]})
+        st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Pythag'),use_container_width=True)
     
     # Adjusted Pythagorean tab
     with tabs[3]:
@@ -564,6 +579,8 @@ def main():
                              'Elo':[f"{elo[t]:.1f}" for t in elo_ord],
                              'SOS':[f"{sos[t]:.3f}" for t in elo_ord]})
         st.dataframe(df_elo)
+        chart_data=pd.DataFrame({'Team':elo_ord,'Elo':[elo[t] for t in elo_ord]})
+        st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Elo'),use_container_width=True)
     
     # Average composite tab
     with tabs[5]:
