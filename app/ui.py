@@ -1416,21 +1416,89 @@ def main():
 
         weekly_ranks = compute_weekly_rank_history(DATA_DIR)
         if not weekly_ranks.empty:
-            trend_teams = elo_ord[:6] if len(elo_ord) >= 6 else elo_ord
-            trend_df = weekly_ranks[weekly_ranks["team"].isin(trend_teams)].copy()
+            st.markdown("**Trend over weeks**")
+            st.caption("Use focused team selection and a short time window to make movement easier to interpret.")
+
+            weekly_ranks = weekly_ranks.sort_values(["week_num", "team"]).copy()
+            all_teams_sorted = sorted(weekly_ranks["team"].unique().tolist())
+            default_trend_teams = list(dict.fromkeys((elo_ord[:5] if len(elo_ord) >= 5 else elo_ord) + [te]))
+            selected_trend_teams = st.multiselect(
+                "Teams shown in trend chart",
+                options=all_teams_sorted,
+                default=[team for team in default_trend_teams if team in all_teams_sorted],
+                help="Default includes top 3–5 teams plus the selected profile team.",
+            )
+
+            window_choice = st.radio("Last N weeks", options=["4", "All"], horizontal=True, index=0)
+            max_week = int(weekly_ranks["week_num"].max())
+            if window_choice == "4":
+                min_week = max(1, max_week - 3)
+                trend_window = weekly_ranks[weekly_ranks["week_num"] >= min_week].copy()
+            else:
+                trend_window = weekly_ranks.copy()
+
+            summary_start_week = max(1, max_week - 2)
+            summary_df = weekly_ranks[weekly_ranks["week_num"] >= summary_start_week].copy()
+            summary_stats = []
+            for team, grp in summary_df.groupby("team"):
+                grp = grp.sort_values("week_num")
+                if len(grp) < 2:
+                    continue
+                rank_change = int(grp["rank"].iloc[-1] - grp["rank"].iloc[0])
+                summary_stats.append({"team": team, "rank_change": rank_change})
+            if summary_stats:
+                summary_rank = pd.DataFrame(summary_stats)
+                biggest_riser = summary_rank.sort_values("rank_change").iloc[0]
+                biggest_faller = summary_rank.sort_values("rank_change", ascending=False).iloc[0]
+                st.caption(
+                    f"Last {max_week - summary_start_week + 1} weeks: "
+                    f"📈 Biggest riser: **{biggest_riser['team']}** ({abs(int(biggest_riser['rank_change']))} spots) · "
+                    f"📉 Biggest faller: **{biggest_faller['team']}** ({abs(int(biggest_faller['rank_change']))} spots)"
+                )
+
+            trend_df = trend_window.copy()
+            trend_df["is_selected"] = trend_df["team"].isin(selected_trend_teams)
             trend_df["Movement"] = trend_df.groupby("team")["rank"].diff().fillna(0)
             trend_df["MovementSemantics"] = trend_df["Movement"].apply(
                 lambda v: "positive" if v < 0 else ("negative" if v > 0 else "neutral")
             )
-            st.markdown("**Trend over weeks**")
-            st.caption("Trend over weeks: look for steady climbs (downward lines) as signals of momentum.")
-            trend_chart = alt.Chart(trend_df).mark_line(point=True).encode(
-                x=alt.X("week_num:O", title="Week"),
+
+            line_layer = alt.Chart(trend_df).mark_line(strokeWidth=2).encode(
+                x=alt.X("week_num:Q", title="Week"),
                 y=alt.Y("rank:Q", title="Rank (1 is best)", scale=alt.Scale(reverse=True)),
                 color=alt.Color("team:N", legend=alt.Legend(title="Team")),
-                tooltip=["week_label", "team", "rank"],
+                opacity=alt.condition(alt.datum.is_selected, alt.value(1.0), alt.value(0.18)),
+                detail="team:N",
+                tooltip=[
+                    alt.Tooltip("week_label:N", title="Week"),
+                    alt.Tooltip("week_num:Q", title="Week #"),
+                    alt.Tooltip("team:N", title="Team"),
+                    alt.Tooltip("rank:Q", title="Rank"),
+                ],
             )
-            st.altair_chart(trend_chart, use_container_width=True)
+            point_layer = alt.Chart(trend_df).mark_circle(size=70).encode(
+                x=alt.X("week_num:Q"),
+                y=alt.Y("rank:Q"),
+                color=alt.Color(
+                    "MovementSemantics:N",
+                    scale=alt.Scale(
+                        domain=["positive", "neutral", "negative"],
+                        range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
+                    ),
+                    legend=alt.Legend(title="Week-over-week movement"),
+                ),
+                opacity=alt.condition(alt.datum.is_selected, alt.value(1.0), alt.value(0.18)),
+                detail="team:N",
+            )
+            trend_end_labels = trend_df.sort_values("week_num").groupby("team", as_index=False).tail(1)
+            label_layer = alt.Chart(trend_end_labels).mark_text(align="left", dx=6, fontSize=11).encode(
+                x=alt.X("week_num:Q"),
+                y=alt.Y("rank:Q"),
+                text="team:N",
+                color=alt.Color("team:N", legend=None),
+                opacity=alt.condition(alt.datum.is_selected, alt.value(1.0), alt.value(0.25)),
+            )
+            st.altair_chart((line_layer + point_layer + label_layer).interactive(), use_container_width=True)
 
         streak_rows = []
         for t in teams:
