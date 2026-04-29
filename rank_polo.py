@@ -483,6 +483,68 @@ def compute_sectional_rankings(stats, h2h, games_inferred, sos, matchup_agg, sec
 
 # ---------------- App ---------------- #
 
+@st.cache_data
+def load_model_config():
+    with open(CONFIG_JSON, "r", encoding="utf-8") as f:
+        return json.load(f)
+
+def build_confidence_badge(team, stats, h2h, team_imputation, all_teams):
+    games = stats[team]["games"]
+    max_games = max((stats[t]["games"] for t in all_teams), default=1)
+    games_ratio = games / max_games if max_games else 0
+    covered = sum(1 for opp in all_teams if opp != team and h2h.get((team, opp), {"games": 0})["games"] > 0)
+    coverage_ratio = covered / max(len(all_teams) - 1, 1)
+    imp_ratio = (team_imputation[team]["imputed"] / team_imputation[team]["games"]) if team_imputation[team]["games"] else 0
+    score = (0.45 * games_ratio) + (0.35 * coverage_ratio) + (0.20 * (1 - imp_ratio))
+    if score >= 0.75:
+        return "High", score, games_ratio, coverage_ratio, imp_ratio
+    if score >= 0.5:
+        return "Medium", score, games_ratio, coverage_ratio, imp_ratio
+    return "Low", score, games_ratio, coverage_ratio, imp_ratio
+
+def build_rank_diff(previous_orders, current_orders):
+    rows = []
+    for model, current in current_orders.items():
+        previous = previous_orders.get(model, [])
+        prev_idx = {t: i + 1 for i, t in enumerate(previous)}
+        curr_idx = {t: i + 1 for i, t in enumerate(current)}
+        for team, curr_rank in curr_idx.items():
+            old_rank = prev_idx.get(team)
+            delta = None if old_rank is None else (old_rank - curr_rank)
+            rows.append({
+                "Model": model,
+                "Team": team,
+                "Prior Rank": old_rank if old_rank is not None else "New",
+                "Current Rank": curr_rank,
+                "Δ Rank": delta if delta is not None else "—"
+            })
+    return pd.DataFrame(rows)
+
+def build_why_rank_rows(order, metric_values, stats, h2h, sos, team_imputation):
+    rows = []
+    for team in order:
+        rank = order.index(team) + 1
+        top_h2h = max((h2h.get((team, opp), {"wins":0,"games":0}) for opp in stats if opp != team), key=lambda x: (x.get("wins",0), x.get("games",0)), default={"wins":0,"games":0})
+        total_games = top_h2h.get("games", 0)
+        h2h_delta = (top_h2h.get("wins", 0) / total_games - 0.5) if total_games else 0
+        imp_ratio = (team_imputation[team]["imputed"] / team_imputation[team]["games"]) if team_imputation[team]["games"] else 0
+        penalties = []
+        if stats[team]["games"] < max(1, max(st["games"] for st in stats.values()) * 0.7):
+            penalties.append("low games")
+        if imp_ratio > 0.3:
+            penalties.append("high imputation")
+        rows.append({
+            "Rank": rank,
+            "Team": team,
+            "Metric": round(metric_values.get(team, 0), 3),
+            "Record": f"{stats[team]['wins']}-{stats[team]['losses']}-{stats[team]['ties']}",
+            "H2H Delta": f"{h2h_delta:+.3f}",
+            "SOS Effect": round(sos[team]-0.5, 3),
+            "Penalties": ", ".join(penalties) if penalties else "None",
+            "Imputation Rate": f"{imp_ratio:.1%}"
+        })
+    return pd.DataFrame(rows)
+
 
 def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
@@ -493,6 +555,7 @@ def main():
     with st.sidebar.expander("Upload Games"):
         uploader = st.file_uploader("Upload scores .txt", type="txt")
         raw_games = load_scores()
+        prior_games = raw_games.copy()
         if uploader:
             new_df = parse_scores_text(uploader.getvalue().decode())
             if not new_df.empty:
@@ -616,7 +679,7 @@ def main():
     r_avg = round(sum(ranks_list)/len(ranks_list),2) if ranks_list else None
     
     # Tabs & content
-    tabs = st.tabs(["Profile","Win%","Pythag","AdjPyth","Elo","Avg","Sectionals"])
+    tabs = st.tabs(["Profile","Win%","Pythag","AdjPyth","Elo","Avg","Sectionals","Changes"])
     
     # Profile tab
     with tabs[0]:
@@ -687,7 +750,10 @@ def main():
                              'Win %':[f"{stats[t]['win_pct']:.3f}" for t in win_ord],
                              'SOS':[f"{sos[t]:.3f}" for t in win_ord],
                              'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in win_ord]})
+        df_win["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in win_ord]
         st.dataframe(df_win)
+        st.caption("Why this rank")
+        st.dataframe(build_why_rank_rows(win_ord, {t: stats[t]["win_pct"] for t in win_ord}, stats, h2h, sos, team_imputation))
         chart_data=pd.DataFrame({'Team':win_ord,'Win %':[stats[t]['win_pct'] for t in win_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Win %'), use_container_width=True)
     
@@ -698,7 +764,10 @@ def main():
                             'Exp %':[f"{py[t]:.3f}" for t in py_ord],
                             'SOS':[f"{sos[t]:.3f}" for t in py_ord],
                             'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in py_ord]})
+        df_py["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in py_ord]
         st.dataframe(df_py)
+        st.caption("Why this rank")
+        st.dataframe(build_why_rank_rows(py_ord, py, stats, h2h, sos, team_imputation))
         chart_data=pd.DataFrame({'Team':py_ord,'Pythag':[py[t] for t in py_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Pythag'),use_container_width=True)
     
@@ -709,7 +778,10 @@ def main():
                              'AdjPyth %':[f"{adj_vals[t]:.3f}" for t in adj_ord],
                              'SOS':[f"{sos[t]:.3f}" for t in adj_ord],
                              'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in adj_ord]})
+        df_adj["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in adj_ord]
         st.dataframe(df_adj)
+        st.caption("Why this rank")
+        st.dataframe(build_why_rank_rows(adj_ord, adj_vals, stats, h2h, sos, team_imputation))
         # Bar chart of adjusted Pyth
         chart_data = pd.Series({t: adj_vals[t] for t in adj_ord}, name='AdjPyth %')
         st.bar_chart(chart_data)
@@ -728,7 +800,10 @@ def main():
         df_elo=pd.DataFrame({'Team':elo_ord,
                              'Elo':[f"{elo[t]:.1f}" for t in elo_ord],
                              'SOS':[f"{sos[t]:.3f}" for t in elo_ord]})
+        df_elo["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in elo_ord]
         st.dataframe(df_elo)
+        st.caption("Why this rank")
+        st.dataframe(build_why_rank_rows(elo_ord, elo, stats, h2h, sos, team_imputation))
         chart_data=pd.DataFrame({'Team':elo_ord,'Elo':[elo[t] for t in elo_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Elo'),use_container_width=True)
     
@@ -842,9 +917,18 @@ def main():
                     else:
                         st.write("No sectional common opponents")
 
+    with tabs[7]:
+        st.subheader("What changed since last upload")
+        if uploader and not prior_games.empty:
+            prev_stats, prev_h2h = compute_stats(infer_default_scores(prior_games, compute_stats(prior_games.dropna(subset=["score1"]))[0]))
+            prev_py = compute_pythag(infer_default_scores(prior_games, prev_stats), prev_stats, exp=pythag_exp, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
+            prev_adj, _ = rank_adj_pyth(prev_stats, infer_default_scores(prior_games, prev_stats), prev_h2h, k=k, x0=x0, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
+            prev_elo = compute_elo(infer_default_scores(prior_games, prev_stats), initial=elo_cfg["initial"], k=elo_k)
+            previous_orders = {"Win%": rank_win_pct(prev_stats, prev_h2h), "Pythag": rank_pythag(prev_stats, prev_py), "AdjPyth": prev_adj, "Elo": rank_elo(prev_stats, prev_elo)}
+            current_orders = {"Win%": win_ord, "Pythag": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
+            st.dataframe(build_rank_diff(previous_orders, current_orders).sort_values(["Model", "Current Rank"]))
+        else:
+            st.info("Upload new games to see rank changes versus prior file state.")
+
 if __name__ == "__main__":
     main()
-@st.cache_data
-def load_model_config():
-    with open(CONFIG_JSON, "r", encoding="utf-8") as f:
-        return json.load(f)
