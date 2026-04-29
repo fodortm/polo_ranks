@@ -1,0 +1,31 @@
+{
+  "logistic": {
+    "k": 10,
+    "x0": 0.5
+  },
+  "elo": {
+    "k": 32,
+    "initial": 1500
+  },
+  "pythag": {
+    "exponent": 2
+  },
+  "game_count": {
+    "min_games_ratio": 0.5
+  },
+  "sectional": {
+    "game_penalty_threshold": 0.8,
+    "game_penalty_power": 2.0,
+    "zero_sectional_penalty": 0.85,
+    "sectional_penalty_threshold": 0.7,
+    "h2h_weight": 0.45,
+    "common_weight": 0.45,
+    "win_pct_weight": 0.10,
+    "sos_center": 0.5,
+    "sos_scale": 2.0,
+    "sectional_sos_boost": 1.1,
+    "base_common_weight": 0.7,
+    "common_weight_scale": 0.6,
+    "goal_diff_factor_scale": 0.05
+  }
+}
