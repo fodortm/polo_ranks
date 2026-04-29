@@ -781,6 +781,7 @@ def compute_rank_tie_break_key(team, stats, sos, h2h):
 
 def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation):
     model_pct = {name: rank_percentile_map(order) for name, order in orders.items()}
+    rank_lookup = {name: {t: i + 1 for i, t in enumerate(order)} for name, order in orders.items()}
     rows = []
     for team in teams:
         _, confidence, games_ratio, coverage_ratio, imp_ratio = build_confidence_badge(team, stats, h2h, team_imputation, teams)
@@ -794,7 +795,12 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation):
         weighted_sum = sum(weights[m] * model_pct[m].get(team, 0.0) for m in weights)
         total_weight = sum(weights.values())
         calibrated_score = weighted_sum / total_weight if total_weight else 0.0
-        ordinal_ranks = [orders["Win"].index(team) + 1, orders["Pyth"].index(team) + 1, orders["AdjPyth"].index(team) + 1, orders["Elo"].index(team) + 1]
+        ordinal_ranks = [
+            rank_lookup["Win"].get(team, len(orders["Win"]) + 1),
+            rank_lookup["Pyth"].get(team, len(orders["Pyth"]) + 1),
+            rank_lookup["AdjPyth"].get(team, len(orders["AdjPyth"]) + 1),
+            rank_lookup["Elo"].get(team, len(orders["Elo"]) + 1),
+        ]
         rows.append({
             "Team": team,
             "Calibrated Score": calibrated_score,
@@ -976,7 +982,8 @@ def main():
     elo_ord = [t for t in elo_ord if stats[t]['games']>=thr]
     teams    = sorted(stats.keys())
     model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
-    global_prior_df = build_calibrated_ensemble(teams, model_orders, stats, h2h, sos, team_imputation)
+    global_prior_teams = [t for t in teams if t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
+    global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation)
     global_prior_scores = dict(zip(global_prior_df["Team"], global_prior_df["Calibrated Score"]))
 
     # Compute sectional rankings
