@@ -44,5 +44,14 @@
     "max_multiplier": 0.85,
     "coverage_floor": 0.65,
     "imputation_ceiling": 0.3
+  },
+  "ensemble_breadth_damping": {
+    "min_damping": 0.85,
+    "max_damping": 1.0,
+    "opponent_weight": 0.45,
+    "games_weight": 0.4,
+    "imputation_weight": 0.15,
+    "breadth_threshold": 0.7,
+    "threshold_steepness": 1.0
   }
 }

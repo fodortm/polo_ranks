@@ -717,6 +717,35 @@ def build_confidence_badge(team, stats, h2h, team_imputation, all_teams):
         return "Medium", score, games_ratio, coverage_ratio, imp_ratio
     return "Low", score, games_ratio, coverage_ratio, imp_ratio
 
+
+
+def compute_resume_breadth_factor(team, stats, h2h, all_teams, team_imputation, breadth_cfg=None):
+    cfg = breadth_cfg or {}
+    min_damping = float(cfg.get("min_damping", 0.85))
+    max_damping = float(cfg.get("max_damping", 1.00))
+    opp_weight = float(cfg.get("opponent_weight", 0.45))
+    games_weight = float(cfg.get("games_weight", 0.40))
+    imputation_weight = float(cfg.get("imputation_weight", 0.15))
+    threshold = float(cfg.get("breadth_threshold", 0.70))
+    threshold_steepness = float(cfg.get("threshold_steepness", 1.0))
+
+    games = stats[team]["games"]
+    max_games = max((stats[t]["games"] for t in all_teams), default=1)
+    games_ratio = games / max_games if max_games else 0.0
+    unique_opp_count = sum(1 for opp in all_teams if opp != team and h2h.get((team, opp), {"games": 0})["games"] > 0)
+    max_unique_opponents = max(len(all_teams) - 1, 1)
+    unique_opp_ratio = unique_opp_count / max_unique_opponents
+    imp_ratio = (team_imputation[team]["imputed"] / team_imputation[team]["games"]) if team_imputation[team]["games"] else 0.0
+
+    raw_breadth = (opp_weight * unique_opp_ratio) + (games_weight * games_ratio) + (imputation_weight * (1 - imp_ratio))
+    if threshold_steepness <= 0:
+        threshold_steepness = 1.0
+    threshold_scaled = max(0.0, min(1.0, raw_breadth / threshold)) ** threshold_steepness if threshold > 0 else raw_breadth
+    breadth_score = max(0.0, min(1.0, threshold_scaled))
+    damping = min_damping + (max_damping - min_damping) * breadth_score
+    damping = max(min_damping, min(max_damping, damping))
+    return damping, unique_opp_count, unique_opp_ratio, games_ratio, imp_ratio, raw_breadth
+
 def build_rank_diff(previous_orders, current_orders):
     rows = []
     for model, current in current_orders.items():
@@ -779,7 +808,7 @@ def compute_rank_tie_break_key(team, stats, sos, h2h):
     stable_secondary = stats[team]["win_pct"]
     return (direct_h2h_win_pct, sos_adjusted_margin, stable_secondary)
 
-def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, ensemble_base_weights=None, win_model_cap=None):
+def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, ensemble_base_weights=None, win_model_cap=None, ensemble_breadth_cfg=None):
     base_weights = ensemble_base_weights or {
         "Elo": 0.45,
         "Pyth": 0.30,
@@ -791,6 +820,9 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
     rows = []
     for team in teams:
         _, confidence, games_ratio, coverage_ratio, imp_ratio = build_confidence_badge(team, stats, h2h, team_imputation, teams)
+        breadth_damping, unique_opp_count, unique_opp_ratio, _, _, breadth_raw_score = compute_resume_breadth_factor(
+            team, stats, h2h, teams, team_imputation, ensemble_breadth_cfg
+        )
         reliability = max(0.0, confidence)
         reliability_modulators = {
             "Win": 0.50 + 0.50 * coverage_ratio,
@@ -815,7 +847,12 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
             model: (weights[model] / total_weight) if total_weight else 0.0
             for model in weights
         }
-        weighted_sum = sum(normalized_weights[m] * model_pct[m].get(team, 0.0) for m in normalized_weights)
+        weighted_sum = (
+            normalized_weights["Win"] * model_pct["Win"].get(team, 0.0)
+            + normalized_weights["Pyth"] * model_pct["Pyth"].get(team, 0.0) * breadth_damping
+            + normalized_weights["AdjPyth"] * model_pct["AdjPyth"].get(team, 0.0) * breadth_damping
+            + normalized_weights["Elo"] * model_pct["Elo"].get(team, 0.0)
+        )
         calibrated_score = weighted_sum if total_weight else 0.0
         ordinal_ranks = [
             rank_lookup["Win"].get(team, len(orders["Win"]) + 1),
@@ -849,6 +886,10 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
             "Games Ratio": games_ratio,
             "Coverage Ratio": coverage_ratio,
             "Imputation Rate": imp_ratio,
+            "Resume Breadth Damping": breadth_damping,
+            "Unique Opponents": unique_opp_count,
+            "Unique Opponent Ratio": unique_opp_ratio,
+            "Breadth Raw Score": breadth_raw_score,
         })
     df = pd.DataFrame(rows)
     df = df.sort_values(
@@ -874,6 +915,15 @@ def main():
         "max_multiplier": 0.85,
         "coverage_floor": 0.65,
         "imputation_ceiling": 0.30,
+    })
+    ensemble_breadth_cfg = config.get("ensemble_breadth_damping", {
+        "min_damping": 0.85,
+        "max_damping": 1.00,
+        "opponent_weight": 0.45,
+        "games_weight": 0.40,
+        "imputation_weight": 0.15,
+        "breadth_threshold": 0.70,
+        "threshold_steepness": 1.0
     })
 
     # Sidebar settings
@@ -1021,7 +1071,7 @@ def main():
     teams    = sorted(stats.keys())
     model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
     global_prior_teams = [t for t in teams if t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
-    global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg)
+    global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg)
     global_prior_scores = dict(zip(global_prior_df["Team"], global_prior_df["Calibrated Score"]))
 
     # Compute sectional rankings
@@ -1177,7 +1227,7 @@ def main():
     with tabs[5]:
         st.subheader("Rankings by Calibrated Ensemble")
         eligible_teams = [t for t in teams if stats[t]['games'] >= thr and t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
-        df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg)
+        df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg)
         st.dataframe(df_avg[[
             "Rank", "Team", "Calibrated Score", "Ordinal Avg (Debug)", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"
         ]])
@@ -1186,7 +1236,8 @@ def main():
             "Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "Elo %tile",
             "Norm Weight Win", "Norm Weight Pyth", "Norm Weight AdjPyth", "Norm Weight Elo",
             "Weight Win", "Weight Pyth", "Weight AdjPyth", "Weight Elo",
-            "Games Ratio", "Coverage Ratio", "Imputation Rate"
+            "Games Ratio", "Coverage Ratio", "Imputation Rate", "Resume Breadth Damping",
+            "Unique Opponents", "Unique Opponent Ratio", "Breadth Raw Score"
         ]])
     
     # Sectionals tab
