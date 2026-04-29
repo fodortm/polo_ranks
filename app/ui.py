@@ -1546,21 +1546,76 @@ def main():
         opp=st.selectbox("Compare vs", compare_teams, index=default_compare_index)
         h = h2h.get((te,opp),{'wins':0,'games':0})
         st.markdown(f"**H2H**: {h['wins']}-{h['games']-h['wins']} in {h['games']} games")
-        st.caption("Head-to-head explorer: compare direct results and matchup-specific performance signals.")
+        st.caption("Head-to-head explorer: watch margin trend and whether recent meetings differ from overall record.")
+
+        filter_col, n_col = st.columns([2, 1])
+        with filter_col:
+            meeting_filter = st.radio("Meeting filter", ["All meetings", "Last N meetings"], horizontal=True)
+        with n_col:
+            last_n = st.number_input("N", min_value=2, max_value=20, value=5, step=1, disabled=meeting_filter != "Last N meetings")
+
         matchup_games = []
-        for g in games_inferred.itertuples():
+        for i, g in enumerate(games_inferred.itertuples(), start=1):
             if {g.team1, g.team2} == {te, opp}:
                 if g.team1 == te:
                     my_score, opp_score = g.score1, g.score2
                 else:
                     my_score, opp_score = g.score2, g.score1
-                outcome = "positive" if my_score > opp_score else ("negative" if my_score < opp_score else "neutral")
-                matchup_games.append({"Team": te, "Opponent": opp, "For": my_score, "Against": opp_score, "Outcome": outcome})
+                margin = my_score - opp_score
+                outcome = "positive" if margin > 0 else ("negative" if margin < 0 else "neutral")
+                matchup_games.append({
+                    "Meeting": len(matchup_games) + 1,
+                    "Week/Date": f"Game {i}",
+                    "Scoreline": f"{te} {my_score} - {opp_score} {opp}",
+                    "For": my_score,
+                    "Against": opp_score,
+                    "Margin": margin,
+                    "Outcome": outcome,
+                    "Inferred": bool(getattr(g, "is_imputed", False)),
+                })
+
         if matchup_games:
             matchup_df = pd.DataFrame(matchup_games)
-            matchup_chart = alt.Chart(matchup_df).mark_bar().encode(
-                x=alt.X("For:Q", title=f"{te} Goals"),
-                y=alt.Y("Against:Q", title=f"{opp} Goals"),
+            if meeting_filter == "Last N meetings":
+                matchup_df = matchup_df.tail(int(last_n)).reset_index(drop=True)
+                matchup_df["Meeting"] = matchup_df.index + 1
+
+            wins = int((matchup_df["Outcome"] == "positive").sum())
+            losses = int((matchup_df["Outcome"] == "negative").sum())
+            ties = int((matchup_df["Outcome"] == "neutral").sum())
+            total_for = int(matchup_df["For"].sum())
+            total_against = int(matchup_df["Against"].sum())
+            avg_margin = matchup_df["Margin"].mean()
+            recent_three = matchup_df.tail(3)
+            recent_w = int((recent_three["Outcome"] == "positive").sum())
+            recent_l = int((recent_three["Outcome"] == "negative").sum())
+            recent_t = int((recent_three["Outcome"] == "neutral").sum())
+
+            k1, k2, k3, k4 = st.columns(4)
+            k1.metric("Record", f"{wins}-{losses}-{ties}")
+            k2.metric("Avg Margin", f"{avg_margin:+.2f}")
+            k3.metric("Total Goals For/Against", f"{total_for}/{total_against}")
+            k4.metric("Recent 3", f"{recent_w}-{recent_l}-{recent_t}")
+
+            margin_chart = alt.Chart(matchup_df).mark_bar().encode(
+                x=alt.X("Meeting:O", title="Meeting (chronological)"),
+                y=alt.Y("Margin:Q", title=f"{te} margin", scale=alt.Scale(domainMid=0)),
+                color=alt.Color(
+                    "Outcome:N",
+                    scale=alt.Scale(
+                        domain=["positive", "neutral", "negative"],
+                        range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
+                    ),
+                    legend=alt.Legend(title="Outcome"),
+                ),
+                tooltip=["Week/Date", "Scoreline", "Margin", "Outcome", "Inferred"],
+            ).properties(height=220)
+
+            outcome_counts = matchup_df.groupby("Outcome").size().reset_index(name="Count")
+            outcome_counts["stack"] = "Outcomes"
+            outcome_chart = alt.Chart(outcome_counts).mark_bar().encode(
+                x=alt.X("stack:N", axis=alt.Axis(title=None, labels=False, ticks=False)),
+                y=alt.Y("Count:Q", title="Outcome count"),
                 color=alt.Color(
                     "Outcome:N",
                     scale=alt.Scale(
@@ -1568,9 +1623,12 @@ def main():
                         range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
                     ),
                 ),
-                tooltip=["For", "Against", "Outcome"],
-            )
-            st.altair_chart(matchup_chart, use_container_width=True)
+                order=alt.Order("Outcome:N", sort="ascending"),
+                tooltip=["Outcome", "Count"],
+            ).properties(height=220)
+
+            st.altair_chart((margin_chart | outcome_chart).resolve_scale(color="shared"), use_container_width=True)
+            st.dataframe(matchup_df[["Week/Date", "Scoreline", "Margin", "Inferred"]], use_container_width=True)
         st.write(f"{opp} Ranks: Win% #{win_ord.index(opp)+1 if opp in win_ord else '-'} (SOS {sos[opp]:.3f}), "
                  f"Pyth #{py_ord.index(opp)+1 if opp in py_ord else '-'} (SOS {sos[opp]:.3f}), "
                  f"AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'} (SOS {sos[opp]:.3f}), "
