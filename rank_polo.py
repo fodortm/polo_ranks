@@ -746,7 +746,7 @@ def main():
         "sectional": active_sectional_params,
     }
 
-    with st.sidebar.expander("Model Settings", expanded=True):
+    with st.sidebar.expander("Model Settings", expanded=False):
         st.caption("Active model configuration for reproducibility")
         st.json(active_config)
     
@@ -795,7 +795,7 @@ def main():
     
     # Team profile selection
     st.sidebar.header("Team Profile")
-    te=st.sidebar.selectbox("Select Team",teams,index=teams.index("Loyola") if "Loyola" in teams else 0)
+    te=st.sidebar.selectbox("Select Team",teams,index=teams.index("Evanston") if "Evanston" in teams else 0)
     # Compute individual ranks
     ranks = {}
     ranks['win']  = win_ord.index(te)+1 if te in win_ord else None
@@ -821,7 +821,10 @@ def main():
             'Rank Adj':ranks['adj'],'Rank Elo':ranks['elo'],'Avg':r_avg,
             'Imputed Share': f"{(team_imputation[te]['imputed']/team_imputation[te]['games'] if team_imputation[te]['games'] else 0):.1%}"
         },orient='index',columns=['Value']))
-        opp=st.selectbox("Compare vs",[t for t in teams if t!=te])
+        compare_teams = [t for t in teams if t != te]
+        default_compare = "New Trier"
+        default_compare_index = compare_teams.index(default_compare) if default_compare in compare_teams else 0
+        opp=st.selectbox("Compare vs", compare_teams, index=default_compare_index)
         h = h2h.get((te,opp),{'wins':0,'games':0})
         st.markdown(f"**H2H**: {h['wins']}-{h['games']-h['wins']} in {h['games']} games")
         st.write(f"{opp} Ranks: Win% #{win_ord.index(opp)+1 if opp in win_ord else '-'} (SOS {sos[opp]:.3f}), "
