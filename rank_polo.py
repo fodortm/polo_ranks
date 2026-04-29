@@ -2,6 +2,7 @@ import pandas as pd
 import os
 import re
 import math
+import json
 from collections import defaultdict
 from functools import cmp_to_key
 import streamlit as st
@@ -9,6 +10,7 @@ import altair as alt
 
 # ---------------- Constants ---------------- #
 SCORES_CSV = "scores.csv"
+CONFIG_JSON = "model_config.json"
 PATTERN = re.compile(r"^(.+?)\s+(\d+)(?:\s*\(OT\))?\s+(.+?)\s+(\d+)")
 
 # ---------------- Parsing ---------------- #
@@ -326,7 +328,7 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, pa
         "h2h_details": h2h_details, "non_sectional_common_details": non_sectional_details, "sectional_common_details": sectional_details,
     }
 
-def compute_sectional_rankings(stats, h2h, games_inferred, sos):
+def compute_sectional_rankings(stats, h2h, games_inferred, sos, sectional_params=None):
     sectionals = {
         "Barrington": ["Hersey", "Barrington", "Elk Grove", "Conant", "Hoffman Estates", "McHenry", "Fremd", "Palatine", "Meadows", "Schaumburg"],
         "Chicago (Lane)": ["Amundsen", "Jones-Payton", "Kenwood", "Lane", "Latin", "Senn", "St Ignatius", "Whitney Young"],
@@ -340,7 +342,7 @@ def compute_sectional_rankings(stats, h2h, games_inferred, sos):
     sectional_breakdowns = {}
     def rank_teams_in_sectional(teams, sectional_name):
         team_breakdowns = {
-            team: compute_sectional_team_breakdown(team, teams, stats, h2h, games_inferred, sos)
+            team: compute_sectional_team_breakdown(team, teams, stats, h2h, games_inferred, sos, params=sectional_params)
             for team in teams
         }
         for team, breakdown in team_breakdowns.items():
@@ -369,6 +371,7 @@ def compute_sectional_rankings(stats, h2h, games_inferred, sos):
 
 def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
+    config = load_model_config()
 
     # Sidebar settings
     st.sidebar.header("Data & Model Settings")
@@ -380,8 +383,59 @@ def main():
             if not new_df.empty:
                 raw_games = update_scores(raw_games, new_df)
     with st.sidebar.expander("Advanced Settings", expanded=False):
-        k = st.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=10)
-        x0 = st.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=0.5, step=0.05)
+        enable_overrides = st.checkbox("Enable UI overrides", value=False)
+        logistic_cfg = config["logistic"]
+        elo_cfg = config["elo"]
+        pythag_cfg = config["pythag"]
+        game_count_cfg = config["game_count"]
+        sectional_cfg = config["sectional"]
+
+        k = st.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=int(logistic_cfg["k"]), disabled=not enable_overrides)
+        x0 = st.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=float(logistic_cfg["x0"]), step=0.05, disabled=not enable_overrides)
+        elo_k = st.slider("Elo K", min_value=1, max_value=64, value=int(elo_cfg["k"]), disabled=not enable_overrides)
+        pythag_exp = st.slider("Pythagorean Exponent", min_value=1.0, max_value=5.0, value=float(pythag_cfg["exponent"]), step=0.1, disabled=not enable_overrides)
+        min_games_ratio = st.slider("Min Games Ratio", min_value=0.1, max_value=1.0, value=float(game_count_cfg["min_games_ratio"]), step=0.05, disabled=not enable_overrides)
+
+        st.markdown("**Sectional Weights**")
+        h2h_weight = st.slider("H2H Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["h2h_weight"]), step=0.05, disabled=not enable_overrides)
+        common_weight = st.slider("Common Opp Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["common_weight"]), step=0.05, disabled=not enable_overrides)
+        win_pct_weight = st.slider("Win% Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["win_pct_weight"]), step=0.05, disabled=not enable_overrides)
+
+        st.markdown("**SOS Multiplier Range**")
+        sos_center = st.slider("SOS Center", min_value=0.0, max_value=1.0, value=float(sectional_cfg["sos_center"]), step=0.05, disabled=not enable_overrides)
+        sos_scale = st.slider("SOS Scale", min_value=0.0, max_value=4.0, value=float(sectional_cfg["sos_scale"]), step=0.1, disabled=not enable_overrides)
+        sectional_sos_boost = st.slider("Sectional SOS Boost", min_value=0.5, max_value=2.0, value=float(sectional_cfg["sectional_sos_boost"]), step=0.05, disabled=not enable_overrides)
+
+        st.markdown("**Penalty Exponents & Thresholds**")
+        game_penalty_threshold = st.slider("Game Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["game_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
+        game_penalty_power = st.slider("Game Penalty Exponent", min_value=0.5, max_value=4.0, value=float(sectional_cfg["game_penalty_power"]), step=0.1, disabled=not enable_overrides)
+        sectional_penalty_threshold = st.slider("Sectional Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["sectional_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
+
+    active_sectional_params = {
+        **sectional_cfg,
+        "h2h_weight": h2h_weight,
+        "common_weight": common_weight,
+        "win_pct_weight": win_pct_weight,
+        "sos_center": sos_center,
+        "sos_scale": sos_scale,
+        "sectional_sos_boost": sectional_sos_boost,
+        "game_penalty_threshold": game_penalty_threshold,
+        "game_penalty_power": game_penalty_power,
+        "sectional_penalty_threshold": sectional_penalty_threshold,
+    } if enable_overrides else sectional_cfg
+
+    active_config = {
+        "source": "UI overrides" if enable_overrides else f"defaults from {CONFIG_JSON}",
+        "logistic": {"k": k, "x0": x0},
+        "elo": {"k": elo_k, "initial": elo_cfg["initial"]},
+        "pythag": {"exponent": pythag_exp},
+        "game_count": {"min_games_ratio": min_games_ratio},
+        "sectional": active_sectional_params,
+    }
+
+    with st.sidebar.expander("Model Settings", expanded=True):
+        st.caption("Active model configuration for reproducibility")
+        st.json(active_config)
     
     # Initial stats
     scored_games = raw_games.dropna(subset=['score1'])
@@ -395,20 +449,20 @@ def main():
     # Final stats
     stats,h2h = compute_stats(games_inferred)
     sos = compute_sos(stats)
-    py = compute_pythag(stats)
+    py = compute_pythag(stats, exp=pythag_exp)
     adj_vals = compute_adjusted_pythag(games_inferred, stats, k=k, x0=x0)
     adj_ord, _ = rank_adj_pyth(stats, games_inferred, h2h, k=k, x0=x0)
-    elo = compute_elo(games_inferred)
+    elo = compute_elo(games_inferred, initial=elo_cfg["initial"], k=elo_k)
     
     # Compute sectional rankings
-    sectional_rankings, sectional_order, sectional_breakdowns = compute_sectional_rankings(stats, h2h, games_inferred, sos)
+    sectional_rankings, sectional_order, sectional_breakdowns = compute_sectional_rankings(stats, h2h, games_inferred, sos, sectional_params=active_sectional_params)
     
     # Orders & filters
     win_ord = rank_win_pct(stats,h2h)
     py_ord = rank_pythag(stats,py)
     elo_ord = rank_elo(stats,elo)
     maxg = max(st['games'] for st in stats.values()) if stats else 0
-    thr = maxg/2
+    thr = maxg * min_games_ratio
     win_ord = [t for t in win_ord if stats[t]['games']>=thr]
     py_ord  = [t for t in py_ord  if stats[t]['games']>=thr]
     adj_ord = [t for t in adj_ord if stats[t]['games']>=thr]
@@ -655,3 +709,7 @@ def main():
 
 if __name__ == "__main__":
     main()
+@st.cache_data
+def load_model_config():
+    with open(CONFIG_JSON, "r", encoding="utf-8") as f:
+        return json.load(f)
