@@ -1038,18 +1038,110 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
     return df[ordered]
 
 
+
+def render_summary_view(
+    elo_ord,
+    previous_orders,
+    stats,
+    team_imputation,
+    thr,
+    global_prior_scores,
+    teams,
+    te,
+    weekly_ranks,
+):
+    st.subheader("Summary Snapshot")
+    top_teams = elo_ord[:10]
+    prev_elo = previous_orders["Elo"] if previous_orders else []
+    prev_idx = {t: i + 1 for i, t in enumerate(prev_elo)}
+
+    top10_rows = []
+    for i, t in enumerate(top_teams):
+        curr_rank = i + 1
+        prior_rank = prev_idx.get(t)
+        rank_delta = None if prior_rank is None else (curr_rank - prior_rank)
+        imp_share = (team_imputation[t]["imputed"] / team_imputation[t]["games"]) if team_imputation[t]["games"] else 0
+        uncertainty_flag = imp_share >= 0.35 or stats[t]["games"] < max(1, math.ceil(thr))
+        top10_rows.append({
+            "Team": t,
+            "Current Rank": curr_rank,
+            "Prior Rank": prior_rank if prior_rank is not None else "New",
+            "Rank Delta": rank_delta,
+            "Rank Delta Label": "New" if rank_delta is None else f"{rank_delta:+d}",
+            "Win %": stats[t]["win_pct"],
+            "Games": stats[t]["games"],
+            "Imputed Share": imp_share,
+            "Calibrated Score": global_prior_scores.get(t, 0.0),
+            "Delta Semantic": "neutral" if rank_delta is None else ("positive" if rank_delta < 0 else ("negative" if rank_delta > 0 else "neutral")),
+            "Uncertainty Flag": "High uncertainty" if uncertainty_flag else "Established sample",
+            "Opacity": 0.5 if uncertainty_flag else 0.95,
+        })
+    top10_chart_df = pd.DataFrame(top10_rows)
+
+    k1, k2, k3, k4 = st.columns(4)
+    k1.metric("#1 Team", top_teams[0] if top_teams else "-")
+    k2.metric("Top 10 Win % Leader", max(top_teams, key=lambda t: stats[t]["win_pct"]) if top_teams else "-")
+    risers = sorted([r for r in top10_rows if isinstance(r["Rank Delta"], int)], key=lambda r: r["Rank Delta"])
+    fallers = sorted([r for r in top10_rows if isinstance(r["Rank Delta"], int)], key=lambda r: r["Rank Delta"], reverse=True)
+    k3.metric("Top Riser", f"{risers[0]['Team']} ({abs(risers[0]['Rank Delta'])})" if risers and risers[0]["Rank Delta"] < 0 else "No major rise")
+    k4.metric("Top Faller", f"{fallers[0]['Team']} ({abs(fallers[0]['Rank Delta'])})" if fallers and fallers[0]["Rank Delta"] > 0 else "No major drop")
+
+    top10_chart = alt.Chart(top10_chart_df).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+        x=alt.X("Team:N", sort=None),
+        y=alt.Y("Calibrated Score:Q", title="Calibrated Score"),
+        color=alt.Color("Delta Semantic:N", scale=alt.Scale(domain=["positive", "neutral", "negative"], range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]]), legend=None),
+        opacity=alt.Opacity("Opacity:Q", scale=None),
+        tooltip=["Team", "Current Rank", "Prior Rank", "Rank Delta Label", alt.Tooltip("Win %:Q", format=".3f"), "Games", alt.Tooltip("Imputed Share:Q", format=".1%")],
+    )
+    delta_labels = alt.Chart(top10_chart_df).mark_text(dy=-8, fontSize=11).encode(
+        x=alt.X("Team:N", sort=None),
+        y=alt.Y("Calibrated Score:Q"),
+        text="Rank Delta Label:N",
+        color=alt.Color("Delta Semantic:N", scale=alt.Scale(domain=["positive", "neutral", "negative"], range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]]), legend=None),
+    )
+    st.altair_chart(top10_chart + delta_labels, use_container_width=True)
+
+    st.markdown("**Ranked snippets**")
+    snippet_cols = st.columns(3)
+    with snippet_cols[0]:
+        st.markdown("Top 3 risers")
+        for row in risers[:3]:
+            if row["Rank Delta"] < 0:
+                st.write(f"{row['Team']} ({row['Rank Delta']:+d})")
+    with snippet_cols[1]:
+        st.markdown("Top 3 fallers")
+        for row in fallers[:3]:
+            if row["Rank Delta"] > 0:
+                st.write(f"{row['Team']} ({row['Rank Delta']:+d})")
+    with snippet_cols[2]:
+        st.markdown("Current Top 10")
+        for i, t in enumerate(top_teams, start=1):
+            st.write(f"{i}. {t}")
+
+    st.markdown("**Continue to deep dive**")
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("Open Team Profile", use_container_width=True):
+            st.session_state["view_mode"] = "Deep Dive"
+            st.rerun()
+    with c2:
+        if st.button("Open Method Tabs", use_container_width=True):
+            st.session_state["view_mode"] = "Deep Dive"
+            st.rerun()
+
+
 def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
     if "view_mode" not in st.session_state:
-        st.session_state["view_mode"] = "Casual View"
+        st.session_state["view_mode"] = "Summary"
     st.markdown("### Viewing Mode")
     st.caption("Choose how much detail you want to see in the dashboard.")
     st.radio(
         "Select mode",
-        options=["Casual View", "Deep Dive"],
+        options=["Summary", "Deep Dive"],
         horizontal=True,
         key="view_mode",
-        help="Casual View shows plain-language takeaways. Deep Dive unlocks all diagnostics and model controls.",
+        help="Summary keeps a concise landing view. Deep Dive unlocks full diagnostics and method tabs.",
     )
     is_deep_dive = st.session_state["view_mode"] == "Deep Dive"
     st.info(f"Current mode: **{st.session_state['view_mode']}**")
@@ -1356,178 +1448,9 @@ def main():
     
 
     if not is_deep_dive:
-        st.subheader("Casual Snapshot")
-        with st.expander("How rankings work", expanded=False):
-            st.write("We combine how often teams win, how strong they score, and how tough their opponents are. Teams that win consistently against harder schedules rise.")
-            st.caption("Optional formulas: Win% = wins / games; Team Momentum tracks recent rank movement and close-game results; Scoring Strength is a smoothed goals-for vs goals-against profile.")
-        top_teams = pd.DataFrame({"Rank": range(1, min(11, len(elo_ord)+1)), "Team": elo_ord[:10]})
-        st.markdown("**Top teams right now**")
-        st.dataframe(top_teams, use_container_width=True)
-        st.caption("Top 10 snapshot: look first for the largest upward movers among the current top 10.")
-        previous_elo = previous_orders["Elo"] if previous_orders else []
-        prev_elo_idx = {t: i + 1 for i, t in enumerate(previous_elo)}
-        top10_rows = []
-        for i, t in enumerate(elo_ord[:10]):
-            curr_rank = i + 1
-            prior_rank = prev_elo_idx.get(t)
-            rank_delta = None if prior_rank is None else (curr_rank - prior_rank)
-            imp_share = (team_imputation[t]["imputed"] / team_imputation[t]["games"]) if team_imputation[t]["games"] else 0
-            uncertainty_flag = imp_share >= 0.35 or stats[t]["games"] < max(1, math.ceil(thr))
-            top10_rows.append({
-                "Team": t,
-                "Current Rank": curr_rank,
-                "Prior Rank": prior_rank if prior_rank is not None else "New",
-                "Rank Delta": rank_delta,
-                "Rank Delta Label": "New" if rank_delta is None else f"{rank_delta:+d}",
-                "Win %": stats[t]["win_pct"],
-                "Games": stats[t]["games"],
-                "Imputed Share": imp_share,
-                "Calibrated Score": global_prior_scores.get(t, 0.0),
-                "Delta Semantic": "neutral" if rank_delta is None else ("positive" if rank_delta < 0 else ("negative" if rank_delta > 0 else "neutral")),
-                "Uncertainty Flag": "High uncertainty" if uncertainty_flag else "Established sample",
-                "Opacity": 0.5 if uncertainty_flag else 0.95,
-            })
-        top10_chart_df = pd.DataFrame(top10_rows)
-        top10_chart = alt.Chart(top10_chart_df).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
-            x=alt.X("Team:N", sort=None),
-            y=alt.Y("Calibrated Score:Q", title="Calibrated Score"),
-            color=alt.Color(
-                "Delta Semantic:N",
-                scale=alt.Scale(
-                    domain=["positive", "neutral", "negative"],
-                    range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
-                ),
-                legend=None,
-            ),
-            opacity=alt.Opacity("Opacity:Q", scale=None),
-            tooltip=[
-                "Team",
-                "Current Rank",
-                "Prior Rank",
-                "Rank Delta Label",
-                alt.Tooltip("Win %:Q", format=".3f"),
-                "Games",
-                alt.Tooltip("Imputed Share:Q", format=".1%"),
-                alt.Tooltip("Calibrated Score:Q", format=".3f"),
-                "Uncertainty Flag",
-            ],
-        )
-        delta_labels = alt.Chart(top10_chart_df).mark_text(dy=-8, fontSize=11).encode(
-            x=alt.X("Team:N", sort=None),
-            y=alt.Y("Calibrated Score:Q"),
-            text="Rank Delta Label:N",
-            color=alt.Color(
-                "Delta Semantic:N",
-                scale=alt.Scale(
-                    domain=["positive", "neutral", "negative"],
-                    range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
-                ),
-                legend=None,
-            ),
-            opacity=alt.Opacity("Opacity:Q", scale=None),
-        )
-        st.altair_chart(top10_chart + delta_labels, use_container_width=True)
-
         weekly_ranks = compute_weekly_rank_history(DATA_DIR)
-        if not weekly_ranks.empty:
-            st.markdown("**Trend over weeks**")
-            st.caption("Use focused team selection and a short time window to make movement easier to interpret.")
-
-            weekly_ranks = weekly_ranks.sort_values(["week_num", "team"]).copy()
-            all_teams_sorted = sorted(weekly_ranks["team"].unique().tolist())
-            default_trend_teams = list(dict.fromkeys((elo_ord[:5] if len(elo_ord) >= 5 else elo_ord) + [te]))
-            selected_trend_teams = st.multiselect(
-                "Teams shown in trend chart",
-                options=all_teams_sorted,
-                default=[team for team in default_trend_teams if team in all_teams_sorted],
-                help="Default includes top 3–5 teams plus the selected profile team.",
-            )
-
-            window_choice = st.radio("Last N weeks", options=["4", "All"], horizontal=True, index=0)
-            max_week = int(weekly_ranks["week_num"].max())
-            if window_choice == "4":
-                min_week = max(1, max_week - 3)
-                trend_window = weekly_ranks[weekly_ranks["week_num"] >= min_week].copy()
-            else:
-                trend_window = weekly_ranks.copy()
-
-            summary_start_week = max(1, max_week - 2)
-            summary_df = weekly_ranks[weekly_ranks["week_num"] >= summary_start_week].copy()
-            summary_stats = []
-            for team, grp in summary_df.groupby("team"):
-                grp = grp.sort_values("week_num")
-                if len(grp) < 2:
-                    continue
-                rank_change = int(grp["rank"].iloc[-1] - grp["rank"].iloc[0])
-                summary_stats.append({"team": team, "rank_change": rank_change})
-            if summary_stats:
-                summary_rank = pd.DataFrame(summary_stats)
-                biggest_riser = summary_rank.sort_values("rank_change").iloc[0]
-                biggest_faller = summary_rank.sort_values("rank_change", ascending=False).iloc[0]
-                st.caption(
-                    f"Last {max_week - summary_start_week + 1} weeks: "
-                    f"📈 Biggest riser: **{biggest_riser['team']}** ({abs(int(biggest_riser['rank_change']))} spots) · "
-                    f"📉 Biggest faller: **{biggest_faller['team']}** ({abs(int(biggest_faller['rank_change']))} spots)"
-                )
-
-            trend_df = trend_window.copy()
-            trend_df["is_selected"] = trend_df["team"].isin(selected_trend_teams)
-            trend_df["Movement"] = trend_df.groupby("team")["rank"].diff().fillna(0)
-            trend_df["MovementSemantics"] = trend_df["Movement"].apply(
-                lambda v: "positive" if v < 0 else ("negative" if v > 0 else "neutral")
-            )
-
-            line_layer = alt.Chart(trend_df).mark_line(strokeWidth=2).encode(
-                x=alt.X("week_num:Q", title="Week"),
-                y=alt.Y("rank:Q", title="Rank (1 is best)", scale=alt.Scale(reverse=True)),
-                color=alt.Color("team:N", legend=alt.Legend(title="Team")),
-                opacity=alt.condition(alt.datum.is_selected, alt.value(1.0), alt.value(0.18)),
-                detail="team:N",
-                tooltip=[
-                    alt.Tooltip("week_label:N", title="Week"),
-                    alt.Tooltip("week_num:Q", title="Week #"),
-                    alt.Tooltip("team:N", title="Team"),
-                    alt.Tooltip("rank:Q", title="Rank"),
-                ],
-            )
-            point_layer = alt.Chart(trend_df).mark_circle(size=70).encode(
-                x=alt.X("week_num:Q"),
-                y=alt.Y("rank:Q"),
-                color=alt.Color(
-                    "MovementSemantics:N",
-                    scale=alt.Scale(
-                        domain=["positive", "neutral", "negative"],
-                        range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
-                    ),
-                    legend=alt.Legend(title="Week-over-week movement"),
-                ),
-                opacity=alt.condition(alt.datum.is_selected, alt.value(1.0), alt.value(0.18)),
-                detail="team:N",
-            )
-            trend_end_labels = trend_df.sort_values("week_num").groupby("team", as_index=False).tail(1)
-            label_layer = alt.Chart(trend_end_labels).mark_text(align="left", dx=6, fontSize=11).encode(
-                x=alt.X("week_num:Q"),
-                y=alt.Y("rank:Q"),
-                text="team:N",
-                color=alt.Color("team:N", legend=None),
-                opacity=alt.condition(alt.datum.is_selected, alt.value(1.0), alt.value(0.25)),
-            )
-            st.altair_chart((line_layer + point_layer + label_layer).interactive(), use_container_width=True)
-
-        streak_rows = []
-        for t in teams:
-            recent = [r for r in games_inferred.itertuples() if r.team1 == t or r.team2 == t][-5:]
-            streak = 0
-            for g in reversed(recent):
-                scored = (g.score1, g.score2) if g.team1 == t else (g.score2, g.score1)
-                if scored[0] > scored[1]: streak += 1
-                else: break
-            streak_rows.append({"Team": t, "Win Streak": streak})
-        st.markdown("**Current streaks**")
-        st.dataframe(pd.DataFrame(streak_rows).sort_values("Win Streak", ascending=False).head(10), use_container_width=True)
-
-        st.markdown("**What changed this week**")
-        st.info("Use the Changes tab to compare new uploads vs the previous snapshot.")
+        render_summary_view(elo_ord, previous_orders, stats, team_imputation, thr, global_prior_scores, teams, te, weekly_ranks)
+        st.stop()
 
     # Tabs & content
     tabs = st.tabs(["Profile","Win%","Pythag","AdjPyth","Elo","Avg","Sectionals","Changes"])
