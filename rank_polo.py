@@ -209,8 +209,7 @@ def rank_elo(stats,elo):
     return sorted(stats.keys(),key=lambda t:elo[t],reverse=True)
 
 # ---------------- Sectional Rankings ---------------- #
-def compute_sectional_rankings(stats, h2h, games_inferred):
-    sos = compute_sos(stats)
+def compute_sectional_rankings(stats, h2h, games_inferred, sos):
     sectionals = {
         "Barrington": ["Hersey", "Barrington", "Elk Grove", "Conant", "Hoffman Estates", "McHenry", "Fremd", "Palatine", "Meadows", "Schaumburg"],
         "Chicago (Lane)": ["Amundsen", "Jones-Payton", "Kenwood", "Lane", "Latin", "Senn", "St Ignatius", "Whitney Young"],
@@ -455,7 +454,7 @@ def main():
     elo = compute_elo(games_inferred)
     
     # Compute sectional rankings
-    sectional_rankings, sectional_order = compute_sectional_rankings(stats, h2h, games_inferred)
+    sectional_rankings, sectional_order = compute_sectional_rankings(stats, h2h, games_inferred, sos)
     
     # Orders & filters
     win_ord = rank_win_pct(stats,h2h)
