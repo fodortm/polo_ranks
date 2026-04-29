@@ -57,5 +57,11 @@
     "imputation_weight": 0.15,
     "breadth_threshold": 0.7,
     "threshold_steepness": 1.0
+  },
+  "expert_nudge": {
+    "enabled": false,
+    "max_abs": 0.02,
+    "max_rank_shift": 2,
+    "team_adjustments": {}
   }
 }

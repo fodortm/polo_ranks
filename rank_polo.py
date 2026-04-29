@@ -811,7 +811,33 @@ def compute_rank_tie_break_key(team, stats, sos, h2h):
     stable_secondary = stats[team]["win_pct"]
     return (direct_h2h_win_pct, sos_adjusted_margin, stable_secondary)
 
-def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, ensemble_base_weights=None, win_model_cap=None, ensemble_breadth_cfg=None):
+def _build_expert_nudge_lookup(teams, expert_nudge_cfg):
+    cfg = expert_nudge_cfg or {}
+    enabled = bool(cfg.get("enabled", False))
+    max_abs = max(0.0, float(cfg.get("max_abs", 0.02)))
+    max_rank_shift = max(0, int(cfg.get("max_rank_shift", 2)))
+    raw_adjustments = cfg.get("team_adjustments", {}) or {}
+    if not isinstance(raw_adjustments, dict):
+        raw_adjustments = {}
+    team_set = set(teams)
+    normalized_team_index = {_normalize_team_name(team).lower(): team for team in teams}
+    applied = {}
+    for team_key, raw_value in raw_adjustments.items():
+        if team_key is None:
+            continue
+        normalized_key = _normalize_team_name(str(team_key)).lower()
+        resolved_team = normalized_team_index.get(normalized_key)
+        if not resolved_team or resolved_team not in team_set:
+            continue
+        try:
+            bounded = max(-max_abs, min(max_abs, float(raw_value)))
+        except (TypeError, ValueError):
+            continue
+        if abs(bounded) > 0:
+            applied[resolved_team] = bounded
+    return enabled, max_abs, max_rank_shift, applied
+
+def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, ensemble_base_weights=None, win_model_cap=None, ensemble_breadth_cfg=None, expert_nudge_cfg=None):
     base_weights = ensemble_base_weights or {
         "Elo": 0.45,
         "Pyth": 0.30,
@@ -895,6 +921,33 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
             "Breadth Raw Score": breadth_raw_score,
         })
     df = pd.DataFrame(rows)
+    enabled_nudge, _, max_rank_shift, nudge_lookup = _build_expert_nudge_lookup(teams, expert_nudge_cfg)
+    df["Nudge Applied"] = df["Team"].map(lambda t: nudge_lookup.get(t, 0.0))
+    if enabled_nudge:
+        base_sorted = df.sort_values(
+            by=["Calibrated Score", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"],
+            ascending=[False, False, False, False],
+            kind="mergesort"
+        ).reset_index(drop=True)
+        base_scores = base_sorted["Calibrated Score"].tolist()
+        min_score = min(base_scores) if base_scores else 0.0
+        max_score = max(base_scores) if base_scores else 0.0
+        rank_index = {team: idx for idx, team in enumerate(base_sorted["Team"])}
+        adjusted_scores = {}
+        for team, score, nudge in zip(df["Team"], df["Calibrated Score"], df["Nudge Applied"]):
+            idx = rank_index.get(team, 0)
+            desired = score + nudge
+            if max_rank_shift > 0 and base_scores:
+                upper_idx = max(0, idx - max_rank_shift)
+                lower_idx = min(len(base_scores) - 1, idx + max_rank_shift)
+                upper_bound = base_scores[upper_idx] + 1e-9
+                lower_bound = base_scores[lower_idx] - 1e-9
+                desired = max(lower_bound, min(upper_bound, desired))
+            desired = max(min_score - 1e-9, min(max_score + 1e-9, desired))
+            adjusted_scores[team] = desired
+        df["Calibrated Score"] = df["Team"].map(adjusted_scores)
+    else:
+        df = df.drop(columns=["Nudge Applied"])
     df = df.sort_values(
         by=["Calibrated Score", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"],
         ascending=[False, False, False, False],
@@ -927,6 +980,12 @@ def main():
         "imputation_weight": 0.15,
         "breadth_threshold": 0.70,
         "threshold_steepness": 1.0
+    })
+    expert_nudge_cfg = config.get("expert_nudge", {
+        "enabled": False,
+        "max_abs": 0.02,
+        "max_rank_shift": 2,
+        "team_adjustments": {}
     })
 
     # Sidebar settings
@@ -1097,7 +1156,7 @@ def main():
     teams    = sorted(stats.keys())
     model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
     global_prior_teams = [t for t in teams if t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
-    global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg)
+    global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg, expert_nudge_cfg=expert_nudge_cfg)
     global_prior_scores = dict(zip(global_prior_df["Team"], global_prior_df["Calibrated Score"]))
 
     # Compute sectional rankings
@@ -1254,7 +1313,7 @@ def main():
     with tabs[5]:
         st.subheader("Rankings by Calibrated Ensemble")
         eligible_teams = [t for t in teams if stats[t]['games'] >= thr and t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
-        df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg)
+        df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg, expert_nudge_cfg=expert_nudge_cfg)
         st.dataframe(df_avg[[
             "Rank", "Team", "Calibrated Score", "Ordinal Avg (Debug)", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"
         ]])
