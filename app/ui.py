@@ -118,20 +118,42 @@ def _load_games_pipeline_cached(data_dir, file_fingerprint):
     suspicious_unparsed = 0
     unresolved_suspicious_lines = []
     parsed_rows = []
+    per_file_reports = []
     for path in files:
+        file_lines_scanned = 0
+        file_skipped = 0
+        file_suspicious = 0
+        file_games = 0
+        file_suspicious_examples = []
         with open(path, "r", encoding="utf-8") as fh:
             for line in fh:
                 lines_scanned += 1
+                file_lines_scanned += 1
                 parsed = _parse_game_line_anchored(line)
                 if parsed is not None:
                     parsed_rows.append(parsed)
+                    file_games += 1
                 else:
                     raw = line.strip()
                     if _is_skippable_line(raw):
                         skipped += 1
+                        file_skipped += 1
                     elif raw:
                         suspicious_unparsed += 1
+                        file_suspicious += 1
                         unresolved_suspicious_lines.append(raw)
+                        if len(file_suspicious_examples) < 5:
+                            file_suspicious_examples.append(raw)
+        per_file_reports.append(
+            {
+                "file_name": os.path.basename(path),
+                "lines_scanned": file_lines_scanned,
+                "games_parsed": file_games,
+                "skipped": file_skipped,
+                "suspicious_unparsed": file_suspicious,
+                "suspicious_examples": file_suspicious_examples,
+            }
+        )
     games_df = pd.DataFrame(parsed_rows, columns=["team1", "score1", "team2", "score2"])
     games_before_dedup = len(games_df)
     if not games_df.empty:
@@ -148,6 +170,7 @@ def _load_games_pipeline_cached(data_dir, file_fingerprint):
         "suspicious_unparsed": suspicious_unparsed,
         "unresolved_suspicious_lines": unresolved_suspicious_lines[:25],
         "duplicates_dropped": games_before_dedup - len(games_df),
+        "per_file_reports": per_file_reports,
     }
     return games_df, qa_meta
 
@@ -1126,16 +1149,47 @@ def main():
     st.sidebar.markdown(f"**Freshness:** last rebuilt from files: `{rebuilt_label}`")
     if is_deep_dive:
         with st.sidebar.expander("Ingestion QA Summary", expanded=False):
-            st.markdown(f"- Parsed lines: `{qa_meta.get('games_parsed', 0)}`")
+            st.markdown(f"- Files loaded: `{qa_meta.get('files_loaded', 0)}`")
+            st.markdown(f"- Games parsed: `{qa_meta.get('games_parsed', 0)}`")
+            st.markdown(f"- Duplicates removed: `{qa_meta.get('duplicates_dropped', 0)}`")
+            st.markdown(f"- Suspicious lines count: `{qa_meta.get('suspicious_unparsed', 0)}`")
             st.markdown(f"- Skipped lines: `{qa_meta.get('skipped', 0)}`")
-            st.markdown(f"- Suspicious unparsed lines: `{qa_meta.get('suspicious_unparsed', 0)}`")
-            st.markdown(f"- Duplicate games dropped: `{qa_meta.get('duplicates_dropped', 0)}`")
             unresolved = qa_meta.get("unresolved_suspicious_lines", [])
-            if unresolved:
-                st.caption("Unresolved suspicious lines (first 25):")
-                st.code("\n".join(unresolved), language="text")
+            if qa_meta.get("suspicious_unparsed", 0) > 0:
+                st.warning("Some lines could not be interpreted and were excluded.")
+                with st.expander("Show suspicious raw lines and formatting examples", expanded=False):
+                    if unresolved:
+                        st.caption("Raw lines we could not parse (first 25):")
+                        st.code("\n".join(unresolved), language="text")
+                    st.caption("Formatting examples that are recognized:")
+                    st.code(
+                        "\n".join(
+                            [
+                                "Team A 12 Team B 9",
+                                "Team A 8 Team B 8 (OT)",
+                                "Team A d. Team B",
+                            ]
+                        ),
+                        language="text",
+                    )
             else:
                 st.caption("No unresolved suspicious lines detected.")
+            per_file_reports = qa_meta.get("per_file_reports", [])
+            if per_file_reports:
+                st.caption("Per-file parse report:")
+                report_df = pd.DataFrame(per_file_reports)[
+                    ["file_name", "lines_scanned", "games_parsed", "skipped", "suspicious_unparsed"]
+                ]
+                st.dataframe(report_df, use_container_width=True, hide_index=True)
+                flagged = [r for r in per_file_reports if r.get("suspicious_unparsed", 0) > 0]
+                if flagged:
+                    with st.expander("Files with suspicious lines", expanded=False):
+                        for row in flagged:
+                            st.markdown(
+                                f"**{row['file_name']}** — suspicious lines: `{row['suspicious_unparsed']}`"
+                            )
+                            if row.get("suspicious_examples"):
+                                st.code("\n".join(row["suspicious_examples"]), language="text")
     else:
         st.sidebar.caption("Casual View hides diagnostics to keep this simple.")
 
