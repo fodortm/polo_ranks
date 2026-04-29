@@ -1015,14 +1015,17 @@ def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
     if "view_mode" not in st.session_state:
         st.session_state["view_mode"] = "Casual View"
+    st.markdown("### Viewing Mode")
+    st.caption("Choose how much detail you want to see in the dashboard.")
     st.radio(
-        "Mode",
+        "Select mode",
         options=["Casual View", "Deep Dive"],
         horizontal=True,
         key="view_mode",
         help="Casual View shows plain-language takeaways. Deep Dive unlocks all diagnostics and model controls.",
     )
     is_deep_dive = st.session_state["view_mode"] == "Deep Dive"
+    st.info(f"Current mode: **{st.session_state['view_mode']}**")
     config = load_model_config()
     ensemble_weights_cfg = {
         "Elo": float(config.get("ensemble_weights", {}).get("Elo", 0.45)),
