@@ -13,7 +13,19 @@ import altair as alt
 # ---------------- Constants ---------------- #
 SCORES_CSV = "scores.csv"
 CONFIG_JSON = "model_config.json"
-PATTERN = re.compile(r"^(.+?)\s+(\d+)(?:\s*\(OT\))?\s+(.+?)\s+(\d+)")
+SCORES_GLOB_SUFFIX = "_scores_illpolo.txt"
+DATA_DIR = "."
+RESULT_PATTERN = re.compile(
+    r"^\s*(?P<team1>.+?)\s+(?P<score1>\d+)\s+"
+    r"(?P<team2>.+?)\s+(?P<score2>\d+)\s*"
+    r"(?:(?:\((?:OT|SO)\))|(?:OT)|(?:SO)|(?:\([^)]*OT[^)]*\)))?\s*$",
+    flags=re.IGNORECASE,
+)
+TRAILING_PLACEMENT_TAG = re.compile(r"\s*\((?:\d+(?:st|nd|rd|th)\s+Place|Final)\)\s*$", flags=re.IGNORECASE)
+TEAM_ALIASES = {
+    "chicago u": "U-Chicago",
+    "chicago-u": "U-Chicago",
+}
 
 # ---------------- Parsing ---------------- #
 def _parse_line(line):
@@ -26,11 +38,92 @@ def _parse_line(line):
         a, b = re.split(r"\s+d\.\s+", raw, maxsplit=1, flags=re.IGNORECASE)
         games.append({"team1": a.strip(), "score1": None, "team2": b.strip(), "score2": None})
         return games
-    m = PATTERN.match(raw)
+    m = RESULT_PATTERN.match(raw)
     if m:
-        t1, s1, t2, s2 = m.group(1).strip(), int(m.group(2)), m.group(3).strip(), int(m.group(4))
+        t1 = _normalize_team_name(m.group("team1"))
+        s1 = int(m.group("score1"))
+        t2 = _normalize_team_name(m.group("team2"))
+        s2 = int(m.group("score2"))
         games.append({"team1": t1, "score1": s1, "team2": t2, "score2": s2})
     return games
+
+def _is_skippable_line(raw):
+    lowered = raw.lower().strip()
+    if not lowered:
+        return True
+    if re.fullmatch(r"[-=_.\s]+", raw):
+        return True
+    if " vs " in lowered:
+        return True
+    if lowered.startswith(("schedule", "championship", "tournament", "results", "bracket")):
+        return True
+    if "illinois high school polo association" in lowered or "ihspa" in lowered:
+        return True
+    if lowered.endswith(":"):
+        return True
+    return False
+
+def _normalize_team_name(name):
+    cleaned = TRAILING_PLACEMENT_TAG.sub("", name).strip()
+    canonical = TEAM_ALIASES.get(cleaned.lower())
+    return canonical if canonical else cleaned
+
+def _discover_score_files(data_dir=DATA_DIR):
+    files = [os.path.join(data_dir, fn) for fn in os.listdir(data_dir) if fn.endswith(SCORES_GLOB_SUFFIX)]
+    return sorted(files)
+
+def _parse_game_line_anchored(line):
+    raw = line.strip()
+    if _is_skippable_line(raw):
+        return None
+    m = RESULT_PATTERN.match(raw)
+    if not m:
+        return None
+    team1 = _normalize_team_name(m.group("team1"))
+    team2 = _normalize_team_name(m.group("team2"))
+    return {
+        "team1": team1,
+        "score1": int(m.group("score1")),
+        "team2": team2,
+        "score2": int(m.group("score2")),
+    }
+
+@st.cache_data
+def load_games_pipeline(data_dir=DATA_DIR):
+    files = _discover_score_files(data_dir)
+    lines_scanned = 0
+    skipped = 0
+    suspicious_unparsed = 0
+    parsed_rows = []
+    for path in files:
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                lines_scanned += 1
+                parsed = _parse_game_line_anchored(line)
+                if parsed is not None:
+                    parsed_rows.append(parsed)
+                else:
+                    raw = line.strip()
+                    if _is_skippable_line(raw):
+                        skipped += 1
+                    elif raw:
+                        suspicious_unparsed += 1
+    games_df = pd.DataFrame(parsed_rows, columns=["team1", "score1", "team2", "score2"])
+    games_before_dedup = len(games_df)
+    if not games_df.empty:
+        identity = games_df.copy()
+        identity["team1"] = identity["team1"].str.strip().str.lower()
+        identity["team2"] = identity["team2"].str.strip().str.lower()
+        games_df = games_df.loc[~identity.duplicated(subset=["team1", "team2", "score1", "score2"])].reset_index(drop=True)
+    qa_meta = {
+        "files_loaded": len(files),
+        "lines_scanned": lines_scanned,
+        "games_parsed": games_before_dedup,
+        "skipped": skipped,
+        "suspicious_unparsed": suspicious_unparsed,
+        "duplicates_dropped": games_before_dedup - len(games_df),
+    }
+    return games_df, qa_meta
 
 def parse_scores_text(text):
     records = []
@@ -41,10 +134,8 @@ def parse_scores_text(text):
 # ---------------- I/O ---------------- #
 @st.cache_data
 def load_scores():
-    try:
-        return pd.read_csv(SCORES_CSV)
-    except (FileNotFoundError, pd.errors.EmptyDataError):
-        return pd.DataFrame(columns=["team1","score1","team2","score2"])
+    games_df, _ = load_games_pipeline(DATA_DIR)
+    return games_df
 
 def save_scores(df):
     df.to_csv(SCORES_CSV, index=False)
