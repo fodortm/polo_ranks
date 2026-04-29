@@ -180,6 +180,10 @@ def compute_weekly_rank_history(data_dir=DATA_DIR):
             continue
         scored_games = week_games.dropna(subset=["score1"])
         base_stats, _ = compute_stats(scored_games)
+        all_week_teams = set(week_games["team1"]).union(set(week_games["team2"]))
+        for team in all_week_teams:
+            if team not in base_stats:
+                base_stats[team] = {'wins':0,'losses':0,'ties':0,'gf':0,'ga':0,'games':0,'opponents':[]}
         inferred = infer_default_scores(week_games, base_stats)
         week_stats, week_h2h = compute_stats(inferred)
         week_order = rank_win_pct(week_stats, week_h2h)
