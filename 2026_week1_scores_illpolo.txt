@@ -1,0 +1,298 @@
+Amundsen 18 Von 3
+
+Barrington 18 Meadows 8
+
+BG 15 Schaumburg 6
+
+Brother Rice 22 Mt Carmel 5
+
+Chicago Ag 17 Senn 8
+
+Conant 15 Elk Grove 4
+
+Fenwick 14 DLS 3
+
+Fremd 16 Hersey 7
+
+Hoffman 17 Wheeling 9
+
+Jones-Payton 11 Northside 2
+
+Lane 20 Solorio 3
+
+Lindblom 17 Julian 3
+
+Loyola 12 St Patrick 8
+
+LWW 16 LWC 7
+
+LWW 12 NC 10
+
+Palatine 15 Prospect 4
+
+Taft 9 Juarez 2
+
+York 17 Oak Park 2
+
+Amundsen 20 Leyden 6
+
+Barrington 20 Neuqua 7
+
+Elk Grove 11 Maine East 5
+
+Evanston 15 Libertyville 3
+
+GBN 18 Lake Forest 3
+
+Kennedy 19 Julian 6
+
+Waubonsie 20 Lockport 6
+
+Amundsen 23 Kenwood 11
+
+Barrington 14 Conant 7
+
+Brother Rice 18 St Ignatius 12
+
+BG 14 Fremd 13
+
+Chicago Ag 22 Prosser 2
+
+Curie 12 St Rita 9
+
+Deerfield 16 Warren 6
+
+Fenwick 14 Mt Carmel 5
+
+Hoffman 13 Elk Grove 10
+
+Lindblom 16 Von 1
+
+Maine East 12 Leyden 8
+
+McHenry 15 VH 7
+
+Palatine 13 Schaumburg 3
+
+Prospect 12 Hersey 9
+
+Solorio 16 Kennedy 11
+
+St Patrick 10 Taft 9
+
+Wheeling 17 Meadows 4
+
+York 18 Morton 7
+
+Bremen 14 Chicago U 0
+
+Elk Grove 14 Leyden 10
+
+Kennedy 9 Senn 2
+
+H-F 8 Shepard 6
+
+Lane 10 HC 8
+
+Metea 12 LWW 11
+
+New Trier 17 NN 5
+
+Prosser 13 Von 12
+
+Whitney Young 12 Taft 8
+
+York 15 NN 4
+
+York 10 New Trier 2
+
+Amundsen 13 Juarez 2
+
+Solorio 10 Westinghouse 6
+
+ 
+
+BG TOURNAMENT
+
+McHenry 10 Elk Grove 2
+
+Libertyville 7 Maine West 1
+
+Libertyville 11 McHenry 6
+
+Maine West 9 Elk Grove 3
+
+BG 11 Deerfield 3
+
+Lake Forest 14 Warren 11
+
+Deerfield d. Warren
+
+BG 13 Lake Forest 2
+
+ 
+
+NILES WEST TOURNAMENT
+
+Niles West 9 Hersey 7 (SO)
+
+Maine South 10 Schaumburg 5
+
+Evanston 11 Hersey 1
+
+Niles West 11 Barrington 10
+
+GBS 11 Conant 4
+
+ 
+
+PALATINE TOURNAMENT
+
+Palatine 11 Waubonsie 7
+
+Fenwick 16 Loyola 3
+
+St Rita 13 Oak Park 11
+
+Waubonsie 17 Mundelein 5
+
+Fenwick 16 Andrew 10
+
+St Rita 18 St Ignatius 15
+
+BG TOURNAMENT
+
+Deerfield 16 Lake Forest 4
+
+Libertyville 11 Elk Grove 1
+
+BG 17 Warren 2
+
+McHenry 9 Maine West 0
+
+Championship Round
+
+Elk Grove 19 Warren 11 (7th)
+
+Maine West 16 Lake Forest 10 (5th)
+
+McHenry 9 Deerfield 3 (3rd)
+
+BG 11 Libertyville 8 (1st)
+
+ 
+
+BRADLEY TOURNAMENT
+
+H-F 11 Bradley 8
+
+Bradley 9 Shepard 6
+
+LWC 10 Bradley 5
+
+HC 13 H-F 7
+
+LWC 16 R-B 1
+
+Shepard 13 R-B 4
+
+H-F 18 Shepard 10
+
+ 
+
+LWE TOURNAMENT
+
+NC 7 LWE 4
+
+NC 16 Lockport 3
+
+NC 15 Metea 8
+
+LWE 19 Lockport 7
+
+LWE 11 Metea 4
+
+Metea 16 Lockport 9
+
+ 
+
+MAINE EAST TOURNAMENT
+
+St Patrick 18 Northside 7
+
+St Patrick 19 Maine East 3
+
+Northside 12 Maine East 5
+
+ 
+
+NILES WEST TOURNAMENT
+
+Evanston 14 Schaumburg 2
+
+Maine South 11 Conant 5
+
+GBS 10 Barrington 1
+
+Niles West 9 Schaumburg 3
+
+Maine South 10 Hersey 6
+
+Evanston 13 Conant 3
+
+GBS 12 Schaumburg 2
+
+Maine South 12 Barrington 7
+
+GBS 8 Hersey 5
+
+Evanston 11 Barrington 5
+
+Niles West 11 Conant 4
+
+ 
+
+PALATINE TOURNAMENT
+
+Palatine 12 Mundelein 4
+
+Andrew 11 Loyola 5
+
+Oak Park 17 St Ignatius 11
+
+Championship Round
+
+Fenwick 12 Palatine 10
+
+Waubonsie 18 Andrew 2
+
+Mundelein 13 Loyola 9
+
+Fenwick 13 St Rita 9
+
+Oak Park 16 Andrew 9
+
+St Ignatius 14 Loyola 3
+
+Palatine 12 St Rita 8
+
+Waubonsie 12 Oak Park 7
+
+Mundelein 19 St Ignatius 14
+
+ 
+
+STEVENSON TOURNAMENT
+
+Stevenson 22 Fremd 4
+
+Lyons 11 Whitney Young 4
+
+Lyons 14 Fremd 10
+
+Stevenson 17 Whitney Young 2
+
+Whitney Young 11 Fremd 6
+
+Stevenson 9 Lyons 7
+
