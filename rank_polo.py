@@ -18,7 +18,7 @@ DATA_DIR = "."
 RESULT_PATTERN = re.compile(
     r"^\s*(?P<team1>.+?)\s+(?P<score1>\d+)\s+"
     r"(?P<team2>.+?)\s+(?P<score2>\d+)\s*"
-    r"(?:(?:\((?:OT|SO)\))|(?:OT)|(?:SO)|(?:\([^)]*OT[^)]*\)))?\s*$",
+    r"(?:(?:\((?:OT|SO)\))|(?:OT)|(?:SO)|(?:\([^)]*OT[^)]*\))|(?:\((?:\d+(?:st|nd|rd|th)\s+Place|Final)\)))?\s*$",
     flags=re.IGNORECASE,
 )
 TRAILING_PLACEMENT_TAG = re.compile(r"\s*\((?:\d+(?:st|nd|rd|th)\s+Place|Final)\)\s*$", flags=re.IGNORECASE)
@@ -76,6 +76,14 @@ def _parse_game_line_anchored(line):
     raw = line.strip()
     if _is_skippable_line(raw):
         return None
+    if re.search(r"\s+d\.\s+", raw, flags=re.IGNORECASE):
+        a, b = re.split(r"\s+d\.\s+", raw, maxsplit=1, flags=re.IGNORECASE)
+        return {
+            "team1": _normalize_team_name(a.strip()),
+            "score1": None,
+            "team2": _normalize_team_name(b.strip()),
+            "score2": None,
+        }
     m = RESULT_PATTERN.match(raw)
     if not m:
         return None
@@ -103,6 +111,7 @@ def _load_games_pipeline_cached(data_dir, file_fingerprint):
     lines_scanned = 0
     skipped = 0
     suspicious_unparsed = 0
+    unresolved_suspicious_lines = []
     parsed_rows = []
     for path in files:
         with open(path, "r", encoding="utf-8") as fh:
@@ -117,6 +126,7 @@ def _load_games_pipeline_cached(data_dir, file_fingerprint):
                         skipped += 1
                     elif raw:
                         suspicious_unparsed += 1
+                        unresolved_suspicious_lines.append(raw)
     games_df = pd.DataFrame(parsed_rows, columns=["team1", "score1", "team2", "score2"])
     games_before_dedup = len(games_df)
     if not games_df.empty:
@@ -131,6 +141,7 @@ def _load_games_pipeline_cached(data_dir, file_fingerprint):
         "games_parsed": games_before_dedup,
         "skipped": skipped,
         "suspicious_unparsed": suspicious_unparsed,
+        "unresolved_suspicious_lines": unresolved_suspicious_lines[:25],
         "duplicates_dropped": games_before_dedup - len(games_df),
     }
     return games_df, qa_meta
@@ -665,6 +676,17 @@ def main():
     rebuilt_label = rebuilt_ts.strftime("%Y-%m-%d %H:%M:%S UTC") if pd.notna(rebuilt_ts) else "unknown"
     st.sidebar.markdown(f"**Freshness:** last rebuilt from files: `{rebuilt_label}`")
     st.sidebar.markdown(f"**Files loaded:** `{qa_meta.get('files_loaded', 0)}`")
+    with st.sidebar.expander("Ingestion QA Summary", expanded=False):
+        st.markdown(f"- Parsed lines: `{qa_meta.get('games_parsed', 0)}`")
+        st.markdown(f"- Skipped lines: `{qa_meta.get('skipped', 0)}`")
+        st.markdown(f"- Suspicious unparsed lines: `{qa_meta.get('suspicious_unparsed', 0)}`")
+        st.markdown(f"- Duplicate games dropped: `{qa_meta.get('duplicates_dropped', 0)}`")
+        unresolved = qa_meta.get("unresolved_suspicious_lines", [])
+        if unresolved:
+            st.caption("Unresolved suspicious lines (first 25):")
+            st.code("\n".join(unresolved), language="text")
+        else:
+            st.caption("No unresolved suspicious lines detected.")
     with st.sidebar.expander("Advanced Settings", expanded=False):
         enable_overrides = st.checkbox("Enable UI overrides", value=False)
         logistic_cfg = config["logistic"]
