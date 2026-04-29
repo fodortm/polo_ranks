@@ -1046,6 +1046,7 @@ def main():
 
     with tabs[7]:
         st.subheader("What changed since last upload")
+        uploader = st.session_state.get("uploader")
         if uploader and not prior_games.empty:
             prev_stats, prev_h2h = compute_stats(infer_default_scores(prior_games, compute_stats(prior_games.dropna(subset=["score1"]))[0]))
             prev_py = compute_pythag(infer_default_scores(prior_games, prev_stats), prev_stats, exp=pythag_exp, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
