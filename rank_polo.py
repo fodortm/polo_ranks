@@ -456,6 +456,9 @@ SECTIONAL_SCORE_PARAMS = {
     "shared_games_threshold": 3,
     "shared_shrink_k": 4.0,
     "shared_metric": "win_rate",
+    "reliability_floor": 0.35,
+    "reliability_ceiling": 0.95,
+    "reliability_shrink_k": 6.0,
 }
 
 def build_team_opponent_vectors(team, matchup_agg):
@@ -616,12 +619,28 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
 
     common_wins_weighted = common_win_pct * common_games
     win_pct = stats[team]["win_pct"]
-    combined_score = ((h2h_score * p["h2h_weight"]) + (common_win_pct * p["common_weight"]) + (win_pct * p["win_pct_weight"])) * game_penalty * sectional_penalty
+    raw_score = ((h2h_score * p["h2h_weight"]) + (common_win_pct * p["common_weight"]) + (win_pct * p["win_pct_weight"]))
+    fallback_score = win_pct
+
+    penalty_reliability = game_penalty * sectional_penalty
+    shrink_k = max(float(p.get("reliability_shrink_k", 6.0)), 1e-6)
+    game_coverage = (team_games / (team_games + shrink_k)) if team_games >= 0 else 0.0
+    sectional_coverage = (sectional_games / (sectional_games + shrink_k)) if sectional_games >= 0 else 0.0
+    coverage_reliability = game_coverage * sectional_coverage
+
+    floor = float(p.get("reliability_floor", 0.35))
+    ceiling = float(p.get("reliability_ceiling", 0.95))
+    floor = min(max(floor, 0.0), 1.0)
+    ceiling = min(max(ceiling, floor), 1.0)
+    reliability = floor + ((ceiling - floor) * (penalty_reliability * coverage_reliability))
+
+    combined_score = (reliability * raw_score) + ((1 - reliability) * fallback_score)
 
     return {
         "team": team, "sectional": list(sectional), "valid_teams": valid_teams,
         "h2h_score": h2h_score, "common_opponent_score": common_win_pct, "win_pct": win_pct,
         "combined_score": combined_score, "common_wins_weighted": common_wins_weighted, "common_games": common_games,
+        "reliability": reliability, "raw_score": raw_score, "fallback_score": fallback_score,
         "penalties": {"game_penalty": game_penalty, "sectional_penalty": sectional_penalty},
         "h2h_details": h2h_details, "non_sectional_common_details": non_sectional_details, "sectional_common_details": sectional_details,
     }
@@ -790,6 +809,9 @@ def main():
         game_penalty_threshold = st.slider("Game Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["game_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
         game_penalty_power = st.slider("Game Penalty Exponent", min_value=0.5, max_value=4.0, value=float(sectional_cfg["game_penalty_power"]), step=0.1, disabled=not enable_overrides)
         sectional_penalty_threshold = st.slider("Sectional Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["sectional_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
+        reliability_floor = st.slider("Reliability Floor", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_floor"]), step=0.05, disabled=not enable_overrides)
+        reliability_ceiling = st.slider("Reliability Ceiling", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_ceiling"]), step=0.05, disabled=not enable_overrides)
+        reliability_shrink_k = st.slider("Reliability Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["reliability_shrink_k"]), step=0.5, disabled=not enable_overrides)
 
     active_sectional_params = {
         **sectional_cfg,
@@ -802,6 +824,9 @@ def main():
         "game_penalty_threshold": game_penalty_threshold,
         "game_penalty_power": game_penalty_power,
         "sectional_penalty_threshold": sectional_penalty_threshold,
+        "reliability_floor": reliability_floor,
+        "reliability_ceiling": reliability_ceiling,
+        "reliability_shrink_k": reliability_shrink_k,
     } if enable_overrides else sectional_cfg
 
     active_config = {
