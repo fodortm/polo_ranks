@@ -748,6 +748,74 @@ def build_why_rank_rows(order, metric_values, stats, h2h, sos, team_imputation):
         })
     return pd.DataFrame(rows)
 
+def rank_percentile_map(order):
+    n = len(order)
+    if n <= 1:
+        return {team: 1.0 for team in order}
+    return {team: (n - idx - 1) / (n - 1) for idx, team in enumerate(order)}
+
+def compute_rank_tie_break_key(team, stats, sos, h2h):
+    direct_h2h_win_pct = max(
+        (
+            (record["wins"] / record["games"])
+            for (me, _), record in h2h.items()
+            if me == team and record.get("games", 0) > 0
+        ),
+        default=0.0
+    )
+    sos_adjusted_margin = ((stats[team]["gf"] - stats[team]["ga"]) / max(stats[team]["games"], 1)) * sos.get(team, 0)
+    stable_secondary = stats[team]["win_pct"]
+    return (direct_h2h_win_pct, sos_adjusted_margin, stable_secondary)
+
+def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation):
+    model_pct = {name: rank_percentile_map(order) for name, order in orders.items()}
+    rows = []
+    for team in teams:
+        _, confidence, games_ratio, coverage_ratio, imp_ratio = build_confidence_badge(team, stats, h2h, team_imputation, teams)
+        reliability = max(0.0, confidence)
+        weights = {
+            "Win": reliability * (0.50 + 0.50 * coverage_ratio),
+            "Pyth": reliability * (0.50 + 0.50 * games_ratio),
+            "AdjPyth": reliability * (0.65 + 0.35 * (1 - imp_ratio)),
+            "Elo": reliability * (0.50 + 0.50 * coverage_ratio),
+        }
+        weighted_sum = sum(weights[m] * model_pct[m].get(team, 0.0) for m in weights)
+        total_weight = sum(weights.values())
+        calibrated_score = weighted_sum / total_weight if total_weight else 0.0
+        ordinal_ranks = [orders["Win"].index(team) + 1, orders["Pyth"].index(team) + 1, orders["AdjPyth"].index(team) + 1, orders["Elo"].index(team) + 1]
+        rows.append({
+            "Team": team,
+            "Calibrated Score": calibrated_score,
+            "Direct H2H Tiebreak": compute_rank_tie_break_key(team, stats, sos, h2h)[0],
+            "SOS Margin Tiebreak": compute_rank_tie_break_key(team, stats, sos, h2h)[1],
+            "Stable Secondary": compute_rank_tie_break_key(team, stats, sos, h2h)[2],
+            "Ordinal Avg (Debug)": round(sum(ordinal_ranks) / len(ordinal_ranks), 2),
+            "Win Rank": ordinal_ranks[0],
+            "Pyth Rank": ordinal_ranks[1],
+            "AdjPyth Rank": ordinal_ranks[2],
+            "Elo Rank": ordinal_ranks[3],
+            "Win %tile": model_pct["Win"].get(team, 0.0),
+            "Pyth %tile": model_pct["Pyth"].get(team, 0.0),
+            "AdjPyth %tile": model_pct["AdjPyth"].get(team, 0.0),
+            "Elo %tile": model_pct["Elo"].get(team, 0.0),
+            "Weight Win": weights["Win"],
+            "Weight Pyth": weights["Pyth"],
+            "Weight AdjPyth": weights["AdjPyth"],
+            "Weight Elo": weights["Elo"],
+            "Games Ratio": games_ratio,
+            "Coverage Ratio": coverage_ratio,
+            "Imputation Rate": imp_ratio,
+        })
+    df = pd.DataFrame(rows)
+    df = df.sort_values(
+        by=["Calibrated Score", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"],
+        ascending=[False, False, False, False],
+        kind="mergesort"
+    ).reset_index(drop=True)
+    df["Rank"] = df.index + 1
+    ordered = ["Rank"] + [c for c in df.columns if c != "Rank"]
+    return df[ordered]
+
 
 def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
@@ -1038,15 +1106,19 @@ def main():
     
     # Average composite tab
     with tabs[5]:
-        st.subheader("Rankings by Avg Composite")
-        comp=[(t,
-               win_ord.index(t)+1, py_ord.index(t)+1,
-               adj_ord.index(t)+1, elo_ord.index(t)+1,
-               round((win_ord.index(t)+1 + py_ord.index(t)+1 + adj_ord.index(t)+1 + elo_ord.index(t)+1)/4,2),
-               sos[t])
-              for t in teams if stats[t]['games']>=thr]
-        df_avg=pd.DataFrame(comp,columns=['Team','Win','Pyth','AdjPyth','Elo','Avg','SOS']).sort_values('Avg')
-        st.dataframe(df_avg)
+        st.subheader("Rankings by Calibrated Ensemble")
+        eligible_teams = [t for t in teams if stats[t]['games'] >= thr and t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
+        model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
+        df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation)
+        st.dataframe(df_avg[[
+            "Rank", "Team", "Calibrated Score", "Ordinal Avg (Debug)", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"
+        ]])
+        st.caption("Per-team contribution breakdown (normalized model outputs × reliability-weighted contributions).")
+        st.dataframe(df_avg[[
+            "Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "Elo %tile",
+            "Weight Win", "Weight Pyth", "Weight AdjPyth", "Weight Elo",
+            "Games Ratio", "Coverage Ratio", "Imputation Rate"
+        ]])
     
     # Sectionals tab
     with tabs[6]:
