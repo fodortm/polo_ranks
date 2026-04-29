@@ -10,22 +10,13 @@ from functools import cmp_to_key
 import streamlit as st
 import altair as alt
 
+from domain.parsing import discover_score_files, is_skippable_line, load_parser_config, normalize_team_name, parse_game_line_anchored
+
 # ---------------- Constants ---------------- #
 SCORES_CSV = "scores.csv"
 CONFIG_JSON = "model_config.json"
 SCORES_GLOB_SUFFIX = "_scores_illpolo.txt"
 DATA_DIR = "."
-RESULT_PATTERN = re.compile(
-    r"^\s*(?P<team1>.+?)\s+(?P<score1>\d+)\s+"
-    r"(?P<team2>.+?)\s+(?P<score2>\d+)\s*"
-    r"(?:(?:\((?:OT|SO)\))|(?:OT)|(?:SO)|(?:\([^)]*OT[^)]*\))|(?:\((?:\d+(?:st|nd|rd|th)\s+Place|Final)\)))?\s*$",
-    flags=re.IGNORECASE,
-)
-TRAILING_PLACEMENT_TAG = re.compile(r"\s*\((?:\d+(?:st|nd|rd|th)\s+Place|Final)\)\s*$", flags=re.IGNORECASE)
-TEAM_ALIASES = {
-    "chicago u": "U-Chicago",
-    "chicago-u": "U-Chicago",
-}
 SEMANTIC_COLORS = {
     "positive": "#2E8540",
     "negative": "#B50909",
@@ -34,72 +25,20 @@ SEMANTIC_COLORS = {
 
 # ---------------- Parsing ---------------- #
 def _parse_line(line):
-    games = []
-    raw = line.strip()
-    if not raw or raw.lower().startswith("championship") or " vs " in raw.lower():
-        return games
-    # Default win notation "d." => placeholder None scores
-    if re.search(r"\s+d\.\s+", raw, flags=re.IGNORECASE):
-        a, b = re.split(r"\s+d\.\s+", raw, maxsplit=1, flags=re.IGNORECASE)
-        games.append({"team1": a.strip(), "score1": None, "team2": b.strip(), "score2": None})
-        return games
-    m = RESULT_PATTERN.match(raw)
-    if m:
-        t1 = _normalize_team_name(m.group("team1"))
-        s1 = int(m.group("score1"))
-        t2 = _normalize_team_name(m.group("team2"))
-        s2 = int(m.group("score2"))
-        games.append({"team1": t1, "score1": s1, "team2": t2, "score2": s2})
-    return games
+    parsed = _parse_game_line_anchored(line)
+    return [parsed] if parsed is not None else []
 
 def _is_skippable_line(raw):
-    lowered = raw.lower().strip()
-    if not lowered:
-        return True
-    if re.fullmatch(r"[-=_.\s]+", raw):
-        return True
-    if " vs " in lowered:
-        return True
-    if lowered.startswith(("schedule", "championship", "tournament", "results", "bracket")):
-        return True
-    if "illinois high school polo association" in lowered or "ihspa" in lowered:
-        return True
-    if lowered.endswith(":"):
-        return True
-    return False
+    return is_skippable_line(raw)
 
 def _normalize_team_name(name):
-    cleaned = TRAILING_PLACEMENT_TAG.sub("", name).strip()
-    canonical = TEAM_ALIASES.get(cleaned.lower())
-    return canonical if canonical else cleaned
+    return normalize_team_name(name, load_parser_config())
 
 def _discover_score_files(data_dir=DATA_DIR):
-    files = [os.path.join(data_dir, fn) for fn in os.listdir(data_dir) if fn.endswith(SCORES_GLOB_SUFFIX)]
-    return sorted(files)
+    return discover_score_files(data_dir)
 
 def _parse_game_line_anchored(line):
-    raw = line.strip()
-    if _is_skippable_line(raw):
-        return None
-    if re.search(r"\s+d\.\s+", raw, flags=re.IGNORECASE):
-        a, b = re.split(r"\s+d\.\s+", raw, maxsplit=1, flags=re.IGNORECASE)
-        return {
-            "team1": _normalize_team_name(a.strip()),
-            "score1": None,
-            "team2": _normalize_team_name(b.strip()),
-            "score2": None,
-        }
-    m = RESULT_PATTERN.match(raw)
-    if not m:
-        return None
-    team1 = _normalize_team_name(m.group("team1"))
-    team2 = _normalize_team_name(m.group("team2"))
-    return {
-        "team1": team1,
-        "score1": int(m.group("score1")),
-        "team2": team2,
-        "score2": int(m.group("score2")),
-    }
+    return parse_game_line_anchored(line, load_parser_config())
 
 def _build_file_fingerprint(files):
     payload = []

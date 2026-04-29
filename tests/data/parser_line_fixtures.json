@@ -1,0 +1,15 @@
+{
+  "rule_a": [
+    {"line": "Loyola 8 Fenwick 5", "team1": "Loyola", "score1": 8, "team2": "Fenwick", "score2": 5},
+    {"line": "New Trier 7 Sandburg 6 (OT)", "team1": "New Trier", "score1": 7, "team2": "Sandburg", "score2": 6}
+  ],
+  "rule_b": [
+    {"line": "Stevenson d. Latin", "team1": "Stevenson", "team2": "Latin"}
+  ],
+  "rule_c": [
+    {"raw": "Brother Rice (3rd Place)", "normalized": "Brother Rice"}
+  ],
+  "rule_d": [
+    {"raw": "Chicago U", "normalized": "U-Chicago"}
+  ]
+}
