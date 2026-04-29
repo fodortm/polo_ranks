@@ -26,6 +26,11 @@ TEAM_ALIASES = {
     "chicago u": "U-Chicago",
     "chicago-u": "U-Chicago",
 }
+SEMANTIC_COLORS = {
+    "positive": "#2E8540",
+    "negative": "#B50909",
+    "neutral": "#6B7280",
+}
 
 # ---------------- Parsing ---------------- #
 def _parse_line(line):
@@ -154,6 +159,37 @@ def load_games_pipeline(data_dir=DATA_DIR):
 def clear_score_pipeline_cache():
     _load_games_pipeline_cached.clear()
     load_scores.clear()
+
+def _week_label_from_path(path):
+    name = os.path.basename(path).replace("_scores_illpolo.txt", "")
+    return name.replace("_", " ").title()
+
+def compute_weekly_rank_history(data_dir=DATA_DIR):
+    files = _discover_score_files(data_dir)
+    parsed_rows = []
+    rank_rows = []
+    for week_num, path in enumerate(files, start=1):
+        week_label = _week_label_from_path(path)
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                parsed = _parse_game_line_anchored(line)
+                if parsed is not None:
+                    parsed_rows.append(parsed)
+        week_games = pd.DataFrame(parsed_rows, columns=["team1", "score1", "team2", "score2"])
+        if week_games.empty:
+            continue
+        scored_games = week_games.dropna(subset=["score1"])
+        base_stats, _ = compute_stats(scored_games)
+        all_week_teams = set(week_games["team1"]).union(set(week_games["team2"]))
+        for team in all_week_teams:
+            if team not in base_stats:
+                base_stats[team] = {'wins':0,'losses':0,'ties':0,'gf':0,'ga':0,'games':0,'opponents':[]}
+        inferred = infer_default_scores(week_games, base_stats)
+        week_stats, week_h2h = compute_stats(inferred)
+        week_order = rank_win_pct(week_stats, week_h2h)
+        for rank, team in enumerate(week_order, start=1):
+            rank_rows.append({"team": team, "rank": rank, "week_num": week_num, "week_label": week_label})
+    return pd.DataFrame(rank_rows)
 
 def parse_scores_text(text):
     records = []
@@ -1034,6 +1070,19 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
 
 def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
+    if "view_mode" not in st.session_state:
+        st.session_state["view_mode"] = "Casual View"
+    st.markdown("### Viewing Mode")
+    st.caption("Choose how much detail you want to see in the dashboard.")
+    st.radio(
+        "Select mode",
+        options=["Casual View", "Deep Dive"],
+        horizontal=True,
+        key="view_mode",
+        help="Casual View shows plain-language takeaways. Deep Dive unlocks all diagnostics and model controls.",
+    )
+    is_deep_dive = st.session_state["view_mode"] == "Deep Dive"
+    st.info(f"Current mode: **{st.session_state['view_mode']}**")
     config = load_model_config()
     ensemble_weights_cfg = {
         "Elo": float(config.get("ensemble_weights", {}).get("Elo", 0.45)),
@@ -1075,63 +1124,78 @@ def main():
     rebuilt_ts = pd.to_datetime(qa_meta.get("rebuilt_at"), utc=True, errors="coerce")
     rebuilt_label = rebuilt_ts.strftime("%Y-%m-%d %H:%M:%S UTC") if pd.notna(rebuilt_ts) else "unknown"
     st.sidebar.markdown(f"**Freshness:** last rebuilt from files: `{rebuilt_label}`")
-    st.sidebar.markdown(f"**Files loaded:** `{qa_meta.get('files_loaded', 0)}`")
-    with st.sidebar.expander("Ingestion QA Summary", expanded=False):
-        st.markdown(f"- Parsed lines: `{qa_meta.get('games_parsed', 0)}`")
-        st.markdown(f"- Skipped lines: `{qa_meta.get('skipped', 0)}`")
-        st.markdown(f"- Suspicious unparsed lines: `{qa_meta.get('suspicious_unparsed', 0)}`")
-        st.markdown(f"- Duplicate games dropped: `{qa_meta.get('duplicates_dropped', 0)}`")
-        unresolved = qa_meta.get("unresolved_suspicious_lines", [])
-        if unresolved:
-            st.caption("Unresolved suspicious lines (first 25):")
-            st.code("\n".join(unresolved), language="text")
-        else:
-            st.caption("No unresolved suspicious lines detected.")
-    with st.sidebar.expander("Advanced Settings", expanded=False):
-        enable_overrides = st.checkbox("Enable UI overrides", value=False)
-        logistic_cfg = config["logistic"]
-        elo_cfg = config["elo"]
-        pythag_cfg = config["pythag"]
-        game_count_cfg = config["game_count"]
-        # Backward-compatible config merge: tolerate older model_config.json
-        # files that may not yet include newly added sectional keys.
-        sectional_cfg = {**SECTIONAL_SCORE_PARAMS, **config["sectional"]}
+    if is_deep_dive:
+        with st.sidebar.expander("Ingestion QA Summary", expanded=False):
+            st.markdown(f"- Parsed lines: `{qa_meta.get('games_parsed', 0)}`")
+            st.markdown(f"- Skipped lines: `{qa_meta.get('skipped', 0)}`")
+            st.markdown(f"- Suspicious unparsed lines: `{qa_meta.get('suspicious_unparsed', 0)}`")
+            st.markdown(f"- Duplicate games dropped: `{qa_meta.get('duplicates_dropped', 0)}`")
+            unresolved = qa_meta.get("unresolved_suspicious_lines", [])
+            if unresolved:
+                st.caption("Unresolved suspicious lines (first 25):")
+                st.code("\n".join(unresolved), language="text")
+            else:
+                st.caption("No unresolved suspicious lines detected.")
+    else:
+        st.sidebar.caption("Casual View hides diagnostics to keep this simple.")
 
-        k = st.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=int(logistic_cfg["k"]), disabled=not enable_overrides)
-        x0 = st.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=float(logistic_cfg["x0"]), step=0.05, disabled=not enable_overrides)
-        elo_k = st.slider("Elo K", min_value=1, max_value=64, value=int(elo_cfg.get("k", 22)), disabled=not enable_overrides)
-        phase_k_enabled = st.toggle("Enable phase-based Elo K", value=bool(elo_cfg.get("phase_k_enabled", False)), disabled=not enable_overrides)
-        early_phase_games = st.slider("Early-phase game count", min_value=0, max_value=200, value=int(elo_cfg.get("early_phase_games", 40)), disabled=(not enable_overrides or not phase_k_enabled))
-        early_phase_multiplier = st.slider("Early-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("early_phase_multiplier", 1.15)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
-        late_phase_multiplier = st.slider("Late-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("late_phase_multiplier", 0.9)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
-        pythag_exp = st.slider("Pythagorean Exponent", min_value=1.0, max_value=5.0, value=float(pythag_cfg["exponent"]), step=0.1, disabled=not enable_overrides)
-        include_inferred_margins = st.toggle("Include inferred margins", value=True)
-        down_weight_imputed = st.toggle("Down-weight inferred games", value=False, disabled=not include_inferred_margins)
-        imputed_weight = st.slider("Inferred game weight", min_value=0.0, max_value=1.0, value=0.5, step=0.05, disabled=(not include_inferred_margins or not down_weight_imputed))
-        min_games_ratio = st.slider("Min Games Ratio", min_value=0.1, max_value=1.0, value=float(game_count_cfg["min_games_ratio"]), step=0.05, disabled=not enable_overrides)
+    logistic_cfg = config["logistic"]
+    elo_cfg = config["elo"]
+    pythag_cfg = config["pythag"]
+    game_count_cfg = config["game_count"]
+    sectional_cfg = {**SECTIONAL_SCORE_PARAMS, **config["sectional"]}
 
-        st.markdown("**Sectional Weights**")
-        h2h_weight = st.slider("H2H Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["h2h_weight"]), step=0.05, disabled=not enable_overrides)
-        common_weight = st.slider("Common Opp Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["common_weight"]), step=0.05, disabled=not enable_overrides)
-        win_pct_weight = st.slider("Win% Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["win_pct_weight"]), step=0.05, disabled=not enable_overrides)
+    if is_deep_dive:
+        with st.sidebar.expander("Advanced Settings", expanded=False):
+            enable_overrides = st.checkbox("Enable UI overrides", value=False)
+            k = st.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=int(logistic_cfg["k"]), disabled=not enable_overrides)
+            x0 = st.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=float(logistic_cfg["x0"]), step=0.05, disabled=not enable_overrides)
+            elo_k = st.slider("Elo K", min_value=1, max_value=64, value=int(elo_cfg.get("k", 22)), disabled=not enable_overrides)
+            phase_k_enabled = st.toggle("Enable phase-based Elo K", value=bool(elo_cfg.get("phase_k_enabled", False)), disabled=not enable_overrides)
+            early_phase_games = st.slider("Early-phase game count", min_value=0, max_value=200, value=int(elo_cfg.get("early_phase_games", 40)), disabled=(not enable_overrides or not phase_k_enabled))
+            early_phase_multiplier = st.slider("Early-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("early_phase_multiplier", 1.15)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
+            late_phase_multiplier = st.slider("Late-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("late_phase_multiplier", 0.9)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
+            pythag_exp = st.slider("Pythagorean Exponent", min_value=1.0, max_value=5.0, value=float(pythag_cfg["exponent"]), step=0.1, disabled=not enable_overrides)
+            include_inferred_margins = st.toggle("Include inferred margins", value=True)
+            down_weight_imputed = st.toggle("Down-weight inferred games", value=False, disabled=not include_inferred_margins)
+            imputed_weight = st.slider("Inferred game weight", min_value=0.0, max_value=1.0, value=0.5, step=0.05, disabled=(not include_inferred_margins or not down_weight_imputed))
+            min_games_ratio = st.slider("Min Games Ratio", min_value=0.1, max_value=1.0, value=float(game_count_cfg["min_games_ratio"]), step=0.05, disabled=not enable_overrides)
 
-        st.markdown("**SOS Multiplier Range**")
-        sos_center = st.slider("SOS Center", min_value=0.0, max_value=1.0, value=float(sectional_cfg["sos_center"]), step=0.05, disabled=not enable_overrides)
-        sos_scale = st.slider("SOS Scale", min_value=0.0, max_value=4.0, value=float(sectional_cfg["sos_scale"]), step=0.1, disabled=not enable_overrides)
-        sectional_sos_boost = st.slider("Sectional SOS Boost", min_value=0.5, max_value=2.0, value=float(sectional_cfg["sectional_sos_boost"]), step=0.05, disabled=not enable_overrides)
+            st.markdown("**Sectional Weights**")
+            h2h_weight = st.slider("H2H Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["h2h_weight"]), step=0.05, disabled=not enable_overrides)
+            common_weight = st.slider("Common Opp Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["common_weight"]), step=0.05, disabled=not enable_overrides)
+            win_pct_weight = st.slider("Win% Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["win_pct_weight"]), step=0.05, disabled=not enable_overrides)
 
-        st.markdown("**Penalty Exponents & Thresholds**")
-        game_penalty_threshold = st.slider("Game Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["game_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
-        game_penalty_power = st.slider("Game Penalty Exponent", min_value=0.5, max_value=4.0, value=float(sectional_cfg["game_penalty_power"]), step=0.1, disabled=not enable_overrides)
-        sectional_penalty_threshold = st.slider("Sectional Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["sectional_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
-        reliability_floor = st.slider("Reliability Floor", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_floor"]), step=0.05, disabled=not enable_overrides)
-        reliability_ceiling = st.slider("Reliability Ceiling", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_ceiling"]), step=0.05, disabled=not enable_overrides)
-        reliability_shrink_k = st.slider("Reliability Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["reliability_shrink_k"]), step=0.5, disabled=not enable_overrides)
-        st.markdown("**Global Prior Blend**")
-        global_prior_min_weight = st.slider("Global Prior Min Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_min_weight"]), step=0.01, disabled=not enable_overrides)
-        global_prior_max_weight = st.slider("Global Prior Max Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_max_weight"]), step=0.01, disabled=not enable_overrides)
-        global_prior_shrink_k = st.slider("Global Prior Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["global_prior_shrink_k"]), step=0.5, disabled=not enable_overrides)
+            st.markdown("**SOS Multiplier Range**")
+            sos_center = st.slider("SOS Center", min_value=0.0, max_value=1.0, value=float(sectional_cfg["sos_center"]), step=0.05, disabled=not enable_overrides)
+            sos_scale = st.slider("SOS Scale", min_value=0.0, max_value=4.0, value=float(sectional_cfg["sos_scale"]), step=0.1, disabled=not enable_overrides)
+            sectional_sos_boost = st.slider("Sectional SOS Boost", min_value=0.5, max_value=2.0, value=float(sectional_cfg["sectional_sos_boost"]), step=0.05, disabled=not enable_overrides)
 
+            st.markdown("**Penalty Exponents & Thresholds**")
+            game_penalty_threshold = st.slider("Game Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["game_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
+            game_penalty_power = st.slider("Game Penalty Exponent", min_value=0.5, max_value=4.0, value=float(sectional_cfg["game_penalty_power"]), step=0.1, disabled=not enable_overrides)
+            sectional_penalty_threshold = st.slider("Sectional Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["sectional_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
+            reliability_floor = st.slider("Reliability Floor", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_floor"]), step=0.05, disabled=not enable_overrides)
+            reliability_ceiling = st.slider("Reliability Ceiling", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_ceiling"]), step=0.05, disabled=not enable_overrides)
+            reliability_shrink_k = st.slider("Reliability Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["reliability_shrink_k"]), step=0.5, disabled=not enable_overrides)
+            st.markdown("**Global Prior Blend**")
+            global_prior_min_weight = st.slider("Global Prior Min Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_min_weight"]), step=0.01, disabled=not enable_overrides)
+            global_prior_max_weight = st.slider("Global Prior Max Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_max_weight"]), step=0.01, disabled=not enable_overrides)
+            global_prior_shrink_k = st.slider("Global Prior Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["global_prior_shrink_k"]), step=0.5, disabled=not enable_overrides)
+    else:
+        enable_overrides = False
+        k = int(logistic_cfg["k"]); x0 = float(logistic_cfg["x0"]); elo_k = int(elo_cfg.get("k",22))
+        phase_k_enabled = bool(elo_cfg.get("phase_k_enabled", False)); early_phase_games = int(elo_cfg.get("early_phase_games", 40))
+        early_phase_multiplier = float(elo_cfg.get("early_phase_multiplier", 1.15)); late_phase_multiplier = float(elo_cfg.get("late_phase_multiplier", 0.9))
+        pythag_exp = float(pythag_cfg["exponent"]); include_inferred_margins = True; down_weight_imputed = False; imputed_weight = 0.5
+        min_games_ratio = float(game_count_cfg["min_games_ratio"])
+        h2h_weight = float(sectional_cfg["h2h_weight"]); common_weight = float(sectional_cfg["common_weight"]); win_pct_weight = float(sectional_cfg["win_pct_weight"])
+        sos_center = float(sectional_cfg["sos_center"]); sos_scale = float(sectional_cfg["sos_scale"]); sectional_sos_boost = float(sectional_cfg["sectional_sos_boost"])
+        game_penalty_threshold = float(sectional_cfg["game_penalty_threshold"]); game_penalty_power = float(sectional_cfg["game_penalty_power"])
+        sectional_penalty_threshold = float(sectional_cfg["sectional_penalty_threshold"]); reliability_floor = float(sectional_cfg["reliability_floor"])
+        reliability_ceiling = float(sectional_cfg["reliability_ceiling"]); reliability_shrink_k = float(sectional_cfg["reliability_shrink_k"])
+        global_prior_min_weight = float(sectional_cfg["global_prior_min_weight"]); global_prior_max_weight = float(sectional_cfg["global_prior_max_weight"])
+        global_prior_shrink_k = float(sectional_cfg["global_prior_shrink_k"])
     active_sectional_params = {
         **sectional_cfg,
         "h2h_weight": h2h_weight,
@@ -1172,14 +1236,19 @@ def main():
         "sectional": active_sectional_params,
     }
 
-    with st.sidebar.expander("Model Settings", expanded=False):
-        st.caption("Active model configuration for reproducibility")
-        st.caption("Win% is intentionally low-trust in composite scoring and receives an additional reliability cap in the ensemble.")
-        st.json(active_config)
-    with st.sidebar.expander("Expert Orders", expanded=False):
-        st.caption("Paste Top 25 lists (one team per line; numbering optional) to compare model fit.")
-        illpolo_text = st.text_area("Illpolo order", height=180, key="illpolo_order_text")
-        maxpreps_text = st.text_area("MaxPreps order", height=180, key="maxpreps_order_text")
+    if is_deep_dive:
+        with st.sidebar.expander("Model Settings", expanded=False):
+            st.caption("Active model configuration for reproducibility")
+            st.caption("Win% is intentionally low-trust in composite scoring and receives an additional reliability cap in the ensemble.")
+            st.json(active_config)
+        with st.sidebar.expander("Expert Orders", expanded=False):
+            st.caption("Paste Top 25 lists (one team per line; numbering optional) to compare model fit.")
+            illpolo_text = st.text_area("Illpolo order", height=180, key="illpolo_order_text")
+            maxpreps_text = st.text_area("MaxPreps order", height=180, key="maxpreps_order_text")
+    else:
+        illpolo_text = ""
+        maxpreps_text = ""
+        maxpreps_text = ""
     
     # Initial stats
     scored_games = raw_games.dropna(subset=['score1'])
@@ -1242,6 +1311,32 @@ def main():
         stats, h2h, games_inferred, sos, matchup_agg, global_prior_scores=global_prior_scores, sectional_params=active_sectional_params
     )
     
+    # Prior snapshot orders (used in Casual + Changes views)
+    previous_orders = None
+    uploader = st.session_state.get("uploader")
+    if uploader and not prior_games.empty:
+        prior_scored_games = prior_games.dropna(subset=["score1"])
+        prior_base_stats, _ = compute_stats(prior_scored_games)
+        prev_stats, prev_h2h = compute_stats(infer_default_scores(prior_games, prior_base_stats))
+        prev_py = compute_pythag(
+            infer_default_scores(prior_games, prev_stats),
+            prev_stats,
+            exp=pythag_exp,
+            imputed_mode=imputed_mode,
+            imputed_weight=imputed_weight,
+        )
+        prev_adj, _ = rank_adj_pyth(
+            prev_stats,
+            infer_default_scores(prior_games, prev_stats),
+            prev_h2h,
+            k=k,
+            x0=x0,
+            imputed_mode=imputed_mode,
+            imputed_weight=imputed_weight,
+        )
+        prev_elo = compute_elo(infer_default_scores(prior_games, prev_stats), initial=elo_cfg["initial"], k=elo_k)
+        previous_orders = {"Win%": rank_win_pct(prev_stats, prev_h2h), "Pythag": rank_pythag(prev_stats, prev_py), "AdjPyth": prev_adj, "Elo": rank_elo(prev_stats, prev_elo)}
+
     # Team profile selection
     st.sidebar.header("Team Profile")
     te=st.sidebar.selectbox("Select Team",teams,index=teams.index("Evanston") if "Evanston" in teams else 0)
@@ -1254,6 +1349,113 @@ def main():
     ranks_list   = [v for v in ranks.values() if v]
     r_avg = round(sum(ranks_list)/len(ranks_list),2) if ranks_list else None
     
+
+    if not is_deep_dive:
+        st.subheader("Casual Snapshot")
+        with st.expander("How rankings work", expanded=False):
+            st.write("We combine how often teams win, how strong they score, and how tough their opponents are. Teams that win consistently against harder schedules rise.")
+            st.caption("Optional formulas: Win% = wins / games; Team Momentum tracks recent rank movement and close-game results; Scoring Strength is a smoothed goals-for vs goals-against profile.")
+        top_teams = pd.DataFrame({"Rank": range(1, min(11, len(elo_ord)+1)), "Team": elo_ord[:10]})
+        st.markdown("**Top teams right now**")
+        st.dataframe(top_teams, use_container_width=True)
+        st.caption("Top 10 snapshot: look first for the largest upward movers among the current top 10.")
+        previous_elo = previous_orders["Elo"] if previous_orders else []
+        prev_elo_idx = {t: i + 1 for i, t in enumerate(previous_elo)}
+        top10_rows = []
+        for i, t in enumerate(elo_ord[:10]):
+            curr_rank = i + 1
+            prior_rank = prev_elo_idx.get(t)
+            rank_delta = None if prior_rank is None else (curr_rank - prior_rank)
+            imp_share = (team_imputation[t]["imputed"] / team_imputation[t]["games"]) if team_imputation[t]["games"] else 0
+            uncertainty_flag = imp_share >= 0.35 or stats[t]["games"] < max(1, math.ceil(thr))
+            top10_rows.append({
+                "Team": t,
+                "Current Rank": curr_rank,
+                "Prior Rank": prior_rank if prior_rank is not None else "New",
+                "Rank Delta": rank_delta,
+                "Rank Delta Label": "New" if rank_delta is None else f"{rank_delta:+d}",
+                "Win %": stats[t]["win_pct"],
+                "Games": stats[t]["games"],
+                "Imputed Share": imp_share,
+                "Calibrated Score": global_prior_scores.get(t, 0.0),
+                "Delta Semantic": "neutral" if rank_delta is None else ("positive" if rank_delta < 0 else ("negative" if rank_delta > 0 else "neutral")),
+                "Uncertainty Flag": "High uncertainty" if uncertainty_flag else "Established sample",
+                "Opacity": 0.5 if uncertainty_flag else 0.95,
+            })
+        top10_chart_df = pd.DataFrame(top10_rows)
+        top10_chart = alt.Chart(top10_chart_df).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+            x=alt.X("Team:N", sort=None),
+            y=alt.Y("Calibrated Score:Q", title="Calibrated Score"),
+            color=alt.Color(
+                "Delta Semantic:N",
+                scale=alt.Scale(
+                    domain=["positive", "neutral", "negative"],
+                    range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
+                ),
+                legend=None,
+            ),
+            opacity=alt.Opacity("Opacity:Q", scale=None),
+            tooltip=[
+                "Team",
+                "Current Rank",
+                "Prior Rank",
+                "Rank Delta Label",
+                alt.Tooltip("Win %:Q", format=".3f"),
+                "Games",
+                alt.Tooltip("Imputed Share:Q", format=".1%"),
+                alt.Tooltip("Calibrated Score:Q", format=".3f"),
+                "Uncertainty Flag",
+            ],
+        )
+        delta_labels = alt.Chart(top10_chart_df).mark_text(dy=-8, fontSize=11).encode(
+            x=alt.X("Team:N", sort=None),
+            y=alt.Y("Calibrated Score:Q"),
+            text="Rank Delta Label:N",
+            color=alt.Color(
+                "Delta Semantic:N",
+                scale=alt.Scale(
+                    domain=["positive", "neutral", "negative"],
+                    range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
+                ),
+                legend=None,
+            ),
+            opacity=alt.Opacity("Opacity:Q", scale=None),
+        )
+        st.altair_chart(top10_chart + delta_labels, use_container_width=True)
+
+        weekly_ranks = compute_weekly_rank_history(DATA_DIR)
+        if not weekly_ranks.empty:
+            trend_teams = elo_ord[:6] if len(elo_ord) >= 6 else elo_ord
+            trend_df = weekly_ranks[weekly_ranks["team"].isin(trend_teams)].copy()
+            trend_df["Movement"] = trend_df.groupby("team")["rank"].diff().fillna(0)
+            trend_df["MovementSemantics"] = trend_df["Movement"].apply(
+                lambda v: "positive" if v < 0 else ("negative" if v > 0 else "neutral")
+            )
+            st.markdown("**Trend over weeks**")
+            st.caption("Trend over weeks: look for steady climbs (downward lines) as signals of momentum.")
+            trend_chart = alt.Chart(trend_df).mark_line(point=True).encode(
+                x=alt.X("week_num:O", title="Week"),
+                y=alt.Y("rank:Q", title="Rank (1 is best)", scale=alt.Scale(reverse=True)),
+                color=alt.Color("team:N", legend=alt.Legend(title="Team")),
+                tooltip=["week_label", "team", "rank"],
+            )
+            st.altair_chart(trend_chart, use_container_width=True)
+
+        streak_rows = []
+        for t in teams:
+            recent = [r for r in games_inferred.itertuples() if r.team1 == t or r.team2 == t][-5:]
+            streak = 0
+            for g in reversed(recent):
+                scored = (g.score1, g.score2) if g.team1 == t else (g.score2, g.score1)
+                if scored[0] > scored[1]: streak += 1
+                else: break
+            streak_rows.append({"Team": t, "Win Streak": streak})
+        st.markdown("**Current streaks**")
+        st.dataframe(pd.DataFrame(streak_rows).sort_values("Win Streak", ascending=False).head(10), use_container_width=True)
+
+        st.markdown("**What changed this week**")
+        st.info("Use the Changes tab to compare new uploads vs the previous snapshot.")
+
     # Tabs & content
     tabs = st.tabs(["Profile","Win%","Pythag","AdjPyth","Elo","Avg","Sectionals","Changes"])
     
@@ -1276,6 +1478,31 @@ def main():
         opp=st.selectbox("Compare vs", compare_teams, index=default_compare_index)
         h = h2h.get((te,opp),{'wins':0,'games':0})
         st.markdown(f"**H2H**: {h['wins']}-{h['games']-h['wins']} in {h['games']} games")
+        st.caption("Head-to-head explorer: compare direct results and matchup-specific performance signals.")
+        matchup_games = []
+        for g in games_inferred.itertuples():
+            if {g.team1, g.team2} == {te, opp}:
+                if g.team1 == te:
+                    my_score, opp_score = g.score1, g.score2
+                else:
+                    my_score, opp_score = g.score2, g.score1
+                outcome = "positive" if my_score > opp_score else ("negative" if my_score < opp_score else "neutral")
+                matchup_games.append({"Team": te, "Opponent": opp, "For": my_score, "Against": opp_score, "Outcome": outcome})
+        if matchup_games:
+            matchup_df = pd.DataFrame(matchup_games)
+            matchup_chart = alt.Chart(matchup_df).mark_bar().encode(
+                x=alt.X("For:Q", title=f"{te} Goals"),
+                y=alt.Y("Against:Q", title=f"{opp} Goals"),
+                color=alt.Color(
+                    "Outcome:N",
+                    scale=alt.Scale(
+                        domain=["positive", "neutral", "negative"],
+                        range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
+                    ),
+                ),
+                tooltip=["For", "Against", "Outcome"],
+            )
+            st.altair_chart(matchup_chart, use_container_width=True)
         st.write(f"{opp} Ranks: Win% #{win_ord.index(opp)+1 if opp in win_ord else '-'} (SOS {sos[opp]:.3f}), "
                  f"Pyth #{py_ord.index(opp)+1 if opp in py_ord else '-'} (SOS {sos[opp]:.3f}), "
                  f"AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'} (SOS {sos[opp]:.3f}), "
@@ -1403,6 +1630,21 @@ def main():
             "Games Ratio", "Coverage Ratio", "Imputation Rate", "Resume Breadth Damping",
             "Unique Opponents", "Unique Opponent Ratio", "Breadth Raw Score"
         ]])
+        if is_deep_dive:
+            st.markdown("### Model comparison")
+            st.caption("Model comparison: scan for disagreement bands where one model is much higher/lower than peers.")
+            heatmap_df = df_avg[["Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "Elo %tile"]].copy()
+            heatmap_long = heatmap_df.melt(id_vars="Team", var_name="Model", value_name="Percentile")
+            model_heatmap = alt.Chart(heatmap_long).mark_rect().encode(
+                x=alt.X("Model:N", title=None),
+                y=alt.Y("Team:N", sort=elo_ord[:15], title=None),
+                color=alt.Color(
+                    "Percentile:Q",
+                    scale=alt.Scale(scheme="redyellowgreen"),
+                ),
+                tooltip=["Team", "Model", alt.Tooltip("Percentile:Q", format=".3f")],
+            )
+            st.altair_chart(model_heatmap.properties(height=360), use_container_width=True)
         st.markdown("### Expert Fit")
         illpolo_order = parse_expert_order_text(illpolo_text)
         maxpreps_order = parse_expert_order_text(maxpreps_text)
@@ -1506,11 +1748,11 @@ def main():
                     # Display factors with updated weights
                     col1, col2, col3, col4 = st.columns(4)
                     with col1:
-                        st.metric("H2H (45%)", f"{h2h_score:.3f}")
+                        st.metric("Team Momentum" if not is_deep_dive else "H2H (45%)", f"{h2h_score:.3f}", help="How well this team has done in direct matchups that matter for seeding.")
                     with col2:
-                        st.metric("Common Opp (Non-Sectional, 45%)", f"{common_wins_weighted:.1f}/{common_games}", f"{common_win_pct:.3f}")
+                        st.metric("Scoring Strength" if not is_deep_dive else "Common Opp (Non-Sectional, 45%)", f"{common_wins_weighted:.1f}/{common_games}", f"{common_win_pct:.3f}", help="Performance against shared opponents helps estimate overall strength.")
                     with col3:
-                        st.metric("Win % (10%)", f"{win_pct:.3f}")
+                        st.metric("Schedule Difficulty" if not is_deep_dive else "Win % (10%)", f"{win_pct:.3f}", help="Teams are adjusted for the quality and difficulty of opponents faced.")
                     with col4:
                         penalties = []
                         if game_penalty < 1.0:
@@ -1544,13 +1786,7 @@ def main():
 
     with tabs[7]:
         st.subheader("What changed since last upload")
-        uploader = st.session_state.get("uploader")
-        if uploader and not prior_games.empty:
-            prev_stats, prev_h2h = compute_stats(infer_default_scores(prior_games, compute_stats(prior_games.dropna(subset=["score1"]))[0]))
-            prev_py = compute_pythag(infer_default_scores(prior_games, prev_stats), prev_stats, exp=pythag_exp, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
-            prev_adj, _ = rank_adj_pyth(prev_stats, infer_default_scores(prior_games, prev_stats), prev_h2h, k=k, x0=x0, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
-            prev_elo = compute_elo(infer_default_scores(prior_games, prev_stats), initial=elo_cfg["initial"], k=elo_k)
-            previous_orders = {"Win%": rank_win_pct(prev_stats, prev_h2h), "Pythag": rank_pythag(prev_stats, prev_py), "AdjPyth": prev_adj, "Elo": rank_elo(prev_stats, prev_elo)}
+        if previous_orders is not None:
             current_orders = {"Win%": win_ord, "Pythag": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
             st.dataframe(build_rank_diff(previous_orders, current_orders).sort_values(["Model", "Current Rank"]))
         else:
