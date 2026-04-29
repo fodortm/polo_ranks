@@ -237,15 +237,61 @@ def compute_adjusted_pythag(games, stats, exp=2, k=10, x0=0.5, imputed_mode="ful
 # ---------------- Rankings ---------------- #
 @st.cache_data
 def rank_win_pct(stats,h2h):
-    def cmp(a,b):
-        if stats[a]['win_pct']!=stats[b]['win_pct']:
-            return -1 if stats[a]['win_pct']>stats[b]['win_pct'] else 1
-        h=h2h.get((a,b),{'wins':0,'games':0})
+    def cmp_pairwise(a,b):
+        h = h2h.get((a,b),{'wins':0,'games':0})
         if h['games']:
-            p=h['wins']/h['games']
-            if p!=0.5: return -1 if p>0.5 else 1
-        return (stats[b]['gd'] - stats[a]['gd'])
-    return sorted(stats.keys(),key=cmp_to_key(cmp))
+            p = h['wins']/h['games']
+            if p != 0.5:
+                return -1 if p > 0.5 else 1
+        if stats[a]['gd'] != stats[b]['gd']:
+            return -1 if stats[a]['gd'] > stats[b]['gd'] else 1
+        return -1 if a < b else (1 if a > b else 0)
+
+    ordered = sorted(stats.keys())
+    grouped_by_win_pct = defaultdict(list)
+    for team in ordered:
+        grouped_by_win_pct[stats[team]['win_pct']].append(team)
+
+    final_order = []
+    for win_pct in sorted(grouped_by_win_pct.keys(), reverse=True):
+        group = grouped_by_win_pct[win_pct]
+        if len(group) <= 1:
+            final_order.extend(group)
+            continue
+
+        if len(group) == 2:
+            final_order.extend(sorted(group, key=cmp_to_key(cmp_pairwise)))
+            continue
+
+        # 3+ tied teams: use mini-table among tied teams.
+        mini = {
+            t: {"wins": 0, "losses": 0, "ties": 0, "points": 0, "gd": 0, "games": 0}
+            for t in group
+        }
+        for team in group:
+            for opp in group:
+                if team == opp:
+                    continue
+                rec = h2h.get((team, opp), {"wins": 0, "games": 0, "gf": 0, "ga": 0})
+                if rec["games"] <= 0:
+                    continue
+                wins = rec["wins"]
+                losses = h2h.get((opp, team), {"wins": 0}).get("wins", 0)
+                ties = rec["games"] - wins - losses
+                mini[team]["wins"] += wins
+                mini[team]["losses"] += losses
+                mini[team]["ties"] += ties
+                mini[team]["games"] += rec["games"]
+                mini[team]["gd"] += rec.get("gf", 0) - rec.get("ga", 0)
+                mini[team]["points"] += (2 * wins) + ties
+
+        def mini_sort_key(team):
+            m = mini[team]
+            mini_win_pct = (m["wins"] + 0.5 * m["ties"]) / m["games"] if m["games"] else 0.0
+            return (-m["points"], -mini_win_pct, -m["gd"], -stats[team]["gd"], team)
+
+        final_order.extend(sorted(group, key=mini_sort_key))
+    return final_order
 @st.cache_data
 def rank_pythag(stats,p):
     return sorted(stats.keys(),key=lambda t:p[t],reverse=True)
@@ -633,7 +679,10 @@ def main():
     
     # Win % tab
     with tabs[1]:
-        st.subheader("Rankings by Win %")
+        st.subheader(
+            "Rankings by Win %",
+            help="Tie-breaks: 1) Win%, 2) if exactly two teams are tied use head-to-head, 3) for ties of 3+ use mini-table (head-to-head points, then mini-table win%), 4) mini-table goal differential, 5) full-season goal differential."
+        )
         df_win=pd.DataFrame({'Team':win_ord,
                              'Win %':[f"{stats[t]['win_pct']:.3f}" for t in win_ord],
                              'SOS':[f"{sos[t]:.3f}" for t in win_ord],
