@@ -161,6 +161,52 @@ def parse_scores_text(text):
         records.extend(_parse_line(line))
     return pd.DataFrame(records)
 
+def parse_expert_order_text(text):
+    teams = []
+    for raw in (text or "").splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        line = re.sub(r"^\s*\d+\s*[\)\.\-:]\s*", "", line)
+        line = re.sub(r"^\s*#\s*\d+\s*", "", line)
+        line = re.sub(r"\s{2,}", " ", line).strip()
+        if line:
+            teams.append(_normalize_team_name(line))
+    deduped = []
+    seen = set()
+    for team in teams:
+        key = team.lower()
+        if key not in seen:
+            seen.add(key)
+            deduped.append(team)
+    return deduped
+
+def compute_expert_fit(method_order, expert_order, top_n=25):
+    method_top = method_order[:top_n]
+    expert_top = expert_order[:top_n]
+    method_ranks = {team: idx + 1 for idx, team in enumerate(method_top)}
+    expert_ranks = {team: idx + 1 for idx, team in enumerate(expert_top)}
+    overlap_25 = sorted(set(method_ranks).intersection(expert_ranks))
+    overlap_10_count = len(set(method_order[:10]).intersection(set(expert_order[:10])))
+    mae = None
+    if overlap_25:
+        mae = sum(abs(method_ranks[t] - expert_ranks[t]) for t in overlap_25) / len(overlap_25)
+    return {
+        "top25_overlap_count": len(overlap_25),
+        "top10_overlap_count": overlap_10_count,
+        "mean_abs_rank_error": mae,
+        "deltas": [
+            {
+                "Team": t,
+                "Method Rank": method_ranks[t],
+                "Expert Rank": expert_ranks[t],
+                "Abs Delta": abs(method_ranks[t] - expert_ranks[t]),
+                "Signed Delta (method-expert)": method_ranks[t] - expert_ranks[t],
+            }
+            for t in sorted(overlap_25, key=lambda team: abs(method_ranks[team] - expert_ranks[team]), reverse=True)
+        ],
+    }
+
 # ---------------- I/O ---------------- #
 @st.cache_data
 def load_scores():
@@ -1102,6 +1148,10 @@ def main():
         st.caption("Active model configuration for reproducibility")
         st.caption("Win% is intentionally low-trust in composite scoring and receives an additional reliability cap in the ensemble.")
         st.json(active_config)
+    with st.sidebar.expander("Expert Orders", expanded=False):
+        st.caption("Paste Top 25 lists (one team per line; numbering optional) to compare model fit.")
+        illpolo_text = st.text_area("Illpolo order", height=180, key="illpolo_order_text")
+        maxpreps_text = st.text_area("MaxPreps order", height=180, key="maxpreps_order_text")
     
     # Initial stats
     scored_games = raw_games.dropna(subset=['score1'])
@@ -1325,6 +1375,46 @@ def main():
             "Games Ratio", "Coverage Ratio", "Imputation Rate", "Resume Breadth Damping",
             "Unique Opponents", "Unique Opponent Ratio", "Breadth Raw Score"
         ]])
+        st.markdown("### Expert Fit")
+        illpolo_order = parse_expert_order_text(illpolo_text)
+        maxpreps_order = parse_expert_order_text(maxpreps_text)
+        if not illpolo_order and not maxpreps_order:
+            st.info("Paste Illpolo and/or MaxPreps orders in the sidebar to compute expert-fit metrics after each parameter tweak.")
+        else:
+            method_orders = {
+                "Win": win_ord,
+                "Pyth": py_ord,
+                "AdjPyth": adj_ord,
+                "Elo": elo_ord,
+                "Ensemble": df_avg["Team"].tolist(),
+            }
+            expert_orders = {
+                "Illpolo": illpolo_order,
+                "MaxPreps": maxpreps_order,
+            }
+            report_rows = []
+            for method_name, method_order in method_orders.items():
+                row = {"Method": method_name}
+                for expert_name, expert_order in expert_orders.items():
+                    if expert_order:
+                        fit = compute_expert_fit(method_order, expert_order, top_n=25)
+                        row[f"{expert_name} MAE (Top25 overlap)"] = round(fit["mean_abs_rank_error"], 2) if fit["mean_abs_rank_error"] is not None else None
+                        row[f"{expert_name} Top10 overlap"] = fit["top10_overlap_count"]
+                        row[f"{expert_name} Top25 overlap"] = fit["top25_overlap_count"]
+                report_rows.append(row)
+            st.dataframe(pd.DataFrame(report_rows))
+            with st.expander("Detailed per-team rank deltas (Top 25 overlap only)", expanded=False):
+                for expert_name, expert_order in expert_orders.items():
+                    if not expert_order:
+                        continue
+                    st.markdown(f"#### {expert_name}")
+                    for method_name, method_order in method_orders.items():
+                        fit = compute_expert_fit(method_order, expert_order, top_n=25)
+                        st.markdown(f"**{method_name}**")
+                        if fit["deltas"]:
+                            st.dataframe(pd.DataFrame(fit["deltas"]))
+                        else:
+                            st.caption("No Top 25 overlap with this expert list.")
     
     # Sectionals tab
     with tabs[6]:
