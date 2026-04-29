@@ -538,9 +538,9 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
         sos_multiplier = (1.0 + ((opp_sos - p["sos_center"]) * p["sos_scale"])) * p["sectional_sos_boost"]
         adjusted_strength = opp_strength * sos_multiplier
         weight = p["base_common_weight"] + (p["common_weight_scale"] * (adjusted_strength / avg_opp_win_pct))
-        weighted_wins = r["wins"] * weight
-        common_wins_weighted += weighted_wins
-        common_games += r["games"]
+        # Keep sectional matchup detail for transparency only.
+        # Sectional matchups are already represented in H2H and must not
+        # be double-counted in the common-opponent component.
         sectional_details.append({"Opponent": opp, "Record": f"{r['wins']}-{r['games']-r['wins']}", "Win %": (r["wins"] / r["games"]), "Opp Win %": opp_strength, "Opp SOS": opp_sos, "SOS Mult": sos_multiplier, "Adj Strength": adjusted_strength, "Weight": weight, "Weighted Score": ((r["wins"] / r["games"]) * weight)})
 
     common_win_pct = (common_wins_weighted / common_games) if common_games > 0 else 0.0
@@ -1014,7 +1014,7 @@ def main():
                     with col1:
                         st.metric("H2H (45%)", f"{h2h_score:.3f}")
                     with col2:
-                        st.metric("Common Opp (45%)", f"{common_wins_weighted:.1f}/{common_games}", f"{common_win_pct:.3f}")
+                        st.metric("Common Opp (Non-Sectional, 45%)", f"{common_wins_weighted:.1f}/{common_games}", f"{common_win_pct:.3f}")
                     with col3:
                         st.metric("Win % (10%)", f"{win_pct:.3f}")
                     with col4:
@@ -1036,13 +1036,13 @@ def main():
                         st.write("No head-to-head games played")
                     
                     # Common opponents details
-                    st.markdown("##### Non-Sectional Common Opponents")
+                    st.markdown("##### Non-Sectional Common Opponents (Used in Common Opp Score)")
                     if breakdown["non_sectional_common_details"]:
                         st.dataframe(pd.DataFrame(breakdown["non_sectional_common_details"]))
                     else:
                         st.write("No non-sectional common opponents")
                     
-                    st.markdown("##### Sectional Common Opponents")
+                    st.markdown("##### Sectional Matchups (Reported for Transparency, Counted in H2H)")
                     if breakdown["sectional_common_details"]:
                         st.dataframe(pd.DataFrame(breakdown["sectional_common_details"]))
                     else:
