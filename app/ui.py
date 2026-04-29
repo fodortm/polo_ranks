@@ -1302,6 +1302,32 @@ def main():
         stats, h2h, games_inferred, sos, matchup_agg, global_prior_scores=global_prior_scores, sectional_params=active_sectional_params
     )
     
+    # Prior snapshot orders (used in Casual + Changes views)
+    previous_orders = None
+    uploader = st.session_state.get("uploader")
+    if uploader and not prior_games.empty:
+        prior_scored_games = prior_games.dropna(subset=["score1"])
+        prior_base_stats, _ = compute_stats(prior_scored_games)
+        prev_stats, prev_h2h = compute_stats(infer_default_scores(prior_games, prior_base_stats))
+        prev_py = compute_pythag(
+            infer_default_scores(prior_games, prev_stats),
+            prev_stats,
+            exp=pythag_exp,
+            imputed_mode=imputed_mode,
+            imputed_weight=imputed_weight,
+        )
+        prev_adj, _ = rank_adj_pyth(
+            prev_stats,
+            infer_default_scores(prior_games, prev_stats),
+            prev_h2h,
+            k=k,
+            x0=x0,
+            imputed_mode=imputed_mode,
+            imputed_weight=imputed_weight,
+        )
+        prev_elo = compute_elo(infer_default_scores(prior_games, prev_stats), initial=elo_cfg["initial"], k=elo_k)
+        previous_orders = {"Win%": rank_win_pct(prev_stats, prev_h2h), "Pythag": rank_pythag(prev_stats, prev_py), "AdjPyth": prev_adj, "Elo": rank_elo(prev_stats, prev_elo)}
+
     # Team profile selection
     st.sidebar.header("Team Profile")
     te=st.sidebar.selectbox("Select Team",teams,index=teams.index("Evanston") if "Evanston" in teams else 0)
@@ -1323,27 +1349,70 @@ def main():
         top_teams = pd.DataFrame({"Rank": range(1, min(11, len(elo_ord)+1)), "Team": elo_ord[:10]})
         st.markdown("**Top teams right now**")
         st.dataframe(top_teams, use_container_width=True)
-        st.caption("Top 10 snapshot: focus on who is separating from the pack right now.")
-        top10_chart_df = pd.DataFrame(
-            [{"Team": t, "Rank": i + 1, "WinPct": stats[t]["win_pct"]} for i, t in enumerate(elo_ord[:10])]
-        )
-        top10_chart_df["Outcome"] = top10_chart_df["WinPct"].apply(
-            lambda v: "positive" if v >= 0.6 else ("negative" if v < 0.4 else "neutral")
-        )
+        st.caption("Top 10 snapshot: look first for the largest upward movers among the current top 10.")
+        previous_elo = previous_orders["Elo"] if previous_orders else []
+        prev_elo_idx = {t: i + 1 for i, t in enumerate(previous_elo)}
+        top10_rows = []
+        for i, t in enumerate(elo_ord[:10]):
+            curr_rank = i + 1
+            prior_rank = prev_elo_idx.get(t)
+            rank_delta = None if prior_rank is None else (curr_rank - prior_rank)
+            imp_share = (team_imputation[t]["imputed"] / team_imputation[t]["games"]) if team_imputation[t]["games"] else 0
+            uncertainty_flag = imp_share >= 0.35 or stats[t]["games"] < max(1, math.ceil(thr))
+            top10_rows.append({
+                "Team": t,
+                "Current Rank": curr_rank,
+                "Prior Rank": prior_rank if prior_rank is not None else "New",
+                "Rank Delta": rank_delta,
+                "Rank Delta Label": "New" if rank_delta is None else f"{rank_delta:+d}",
+                "Win %": stats[t]["win_pct"],
+                "Games": stats[t]["games"],
+                "Imputed Share": imp_share,
+                "Calibrated Score": global_prior_scores.get(t, 0.0),
+                "Delta Semantic": "neutral" if rank_delta is None else ("positive" if rank_delta < 0 else ("negative" if rank_delta > 0 else "neutral")),
+                "Uncertainty Flag": "High uncertainty" if uncertainty_flag else "Established sample",
+                "Opacity": 0.5 if uncertainty_flag else 0.95,
+            })
+        top10_chart_df = pd.DataFrame(top10_rows)
         top10_chart = alt.Chart(top10_chart_df).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
             x=alt.X("Team:N", sort=None),
-            y=alt.Y("WinPct:Q", title="Win %"),
+            y=alt.Y("Calibrated Score:Q", title="Calibrated Score"),
             color=alt.Color(
-                "Outcome:N",
+                "Delta Semantic:N",
                 scale=alt.Scale(
                     domain=["positive", "neutral", "negative"],
                     range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
                 ),
                 legend=None,
             ),
-            tooltip=["Rank", "Team", alt.Tooltip("WinPct:Q", format=".3f")],
+            opacity=alt.Opacity("Opacity:Q", scale=None),
+            tooltip=[
+                "Team",
+                "Current Rank",
+                "Prior Rank",
+                "Rank Delta Label",
+                alt.Tooltip("Win %:Q", format=".3f"),
+                "Games",
+                alt.Tooltip("Imputed Share:Q", format=".1%"),
+                alt.Tooltip("Calibrated Score:Q", format=".3f"),
+                "Uncertainty Flag",
+            ],
         )
-        st.altair_chart(top10_chart, use_container_width=True)
+        delta_labels = alt.Chart(top10_chart_df).mark_text(dy=-8, fontSize=11).encode(
+            x=alt.X("Team:N", sort=None),
+            y=alt.Y("Calibrated Score:Q"),
+            text="Rank Delta Label:N",
+            color=alt.Color(
+                "Delta Semantic:N",
+                scale=alt.Scale(
+                    domain=["positive", "neutral", "negative"],
+                    range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
+                ),
+                legend=None,
+            ),
+            opacity=alt.Opacity("Opacity:Q", scale=None),
+        )
+        st.altair_chart(top10_chart + delta_labels, use_container_width=True)
 
         weekly_ranks = compute_weekly_rank_history(DATA_DIR)
         if not weekly_ranks.empty:
@@ -1708,13 +1777,7 @@ def main():
 
     with tabs[7]:
         st.subheader("What changed since last upload")
-        uploader = st.session_state.get("uploader")
-        if uploader and not prior_games.empty:
-            prev_stats, prev_h2h = compute_stats(infer_default_scores(prior_games, compute_stats(prior_games.dropna(subset=["score1"]))[0]))
-            prev_py = compute_pythag(infer_default_scores(prior_games, prev_stats), prev_stats, exp=pythag_exp, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
-            prev_adj, _ = rank_adj_pyth(prev_stats, infer_default_scores(prior_games, prev_stats), prev_h2h, k=k, x0=x0, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
-            prev_elo = compute_elo(infer_default_scores(prior_games, prev_stats), initial=elo_cfg["initial"], k=elo_k)
-            previous_orders = {"Win%": rank_win_pct(prev_stats, prev_h2h), "Pythag": rank_pythag(prev_stats, prev_py), "AdjPyth": prev_adj, "Elo": rank_elo(prev_stats, prev_elo)}
+        if previous_orders is not None:
             current_orders = {"Win%": win_ord, "Pythag": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
             st.dataframe(build_rank_diff(previous_orders, current_orders).sort_values(["Model", "Current Rank"]))
         else:
