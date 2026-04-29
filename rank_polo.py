@@ -784,7 +784,9 @@ def main():
         elo_cfg = config["elo"]
         pythag_cfg = config["pythag"]
         game_count_cfg = config["game_count"]
-        sectional_cfg = config["sectional"]
+        # Backward-compatible config merge: tolerate older model_config.json
+        # files that may not yet include newly added sectional keys.
+        sectional_cfg = {**SECTIONAL_SCORE_PARAMS, **config["sectional"]}
 
         k = st.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=int(logistic_cfg["k"]), disabled=not enable_overrides)
         x0 = st.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=float(logistic_cfg["x0"]), step=0.05, disabled=not enable_overrides)
