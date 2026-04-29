@@ -557,13 +557,14 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
 
 def compute_sectional_rankings(stats, h2h, games_inferred, sos, matchup_agg, sectional_params=None):
     sectionals = {
-        "Barrington": ["Hersey", "Barrington", "Elk Grove", "Conant", "Hoffman Estates", "McHenry", "Fremd", "Palatine", "Meadows", "Schaumburg"],
-        "Chicago (Lane)": ["Amundsen", "Jones-Payton", "Kenwood", "Lane", "Latin", "Senn", "St Ignatius", "Whitney Young"],
-        "Elmhurst (York)": ["Morton", "Northside", "St Patrick", "Taft", "Westinghouse", "York", "Leyden", "Fenwick", "Oak Park", "STC"],
+        "Hoffman Estates (H.S.)": ["Hersey", "Barrington", "Elk Grove", "Conant", "Hoffman Estates", "McHenry", "Fremd", "Palatine", "Meadows", "Schaumburg"],
+        "Chicago (Lane)": ["Amundsen", "De La Salle", "Jones-Payton", "Juarez", "Lane", "Latin", "Senn", "St Ignatius", "Whitney Young"],
+        "Oak Park (Fenwick)": ["Morton", "Northside", "St Patrick", "Taft", "Westinghouse", "York", "Leyden", "Fenwick", "Oak Park", "STC"],
         "Glenview (GBS)": ["Maine West", "Evanston", "GBS", "Prospect", "GBN", "Maine East", "Maine South", "Niles West", "Loyola", "New Trier"],
-        "LaGrange (Lyons)": ["Brother Rice", "Curie", "Kennedy", "Mt Carmel", "Solorio", "St Rita", "Lyons", "R-B", "Goode"],
-        "Naperville (North)": ["Metea", "Waubonsie", "HC", "Lockport", "NC", "Neuqua", "NN", "Sandburg", "Shepard"],
-        "New Lenox (LWW)": ["Bradley", "Chicago Ag", "Brooks", "H-F", "LWE", "Bremen", "LWC", "LWW", "Andrew"]
+        "LaGrange (Lyons)": ["Morton", "Curie", "Kennedy", "Mt Carmel", "Solorio", "St Rita", "Lyons", "R-B", "Argo"],
+        "Hinsdale (Central)": ["Metea", "Waubonsie", "Hinsdale South", "HC", "Lockport", "NC", "Neuqua", "NN", "Sandburg"],
+        "New Lenox (LWC)": ["Bradley", "Chicago Ag", "Brother Rice", "H-F", "LWE", "Bremen", "LWC", "LWW", "Shepard", "Andrew"],
+        "Buffalo Grove": ["BG", "Deerfield", "Warren", "Highland Park", "Lake Forest", "Libertyville", "Stevenson", "Mundelein", "VH"]
     }
     
     sectional_breakdowns = {}
