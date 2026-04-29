@@ -88,8 +88,17 @@ def _parse_game_line_anchored(line):
         "score2": int(m.group("score2")),
     }
 
+def _build_file_fingerprint(files):
+    payload = []
+    for path in files:
+        stat = os.stat(path)
+        payload.append(f"{os.path.basename(path)}:{int(stat.st_mtime_ns)}:{stat.st_size}")
+    encoded = "|".join(payload).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
 @st.cache_data
-def load_games_pipeline(data_dir=DATA_DIR):
+def _load_games_pipeline_cached(data_dir, file_fingerprint):
+    _ = file_fingerprint
     files = _discover_score_files(data_dir)
     lines_scanned = 0
     skipped = 0
@@ -116,6 +125,7 @@ def load_games_pipeline(data_dir=DATA_DIR):
         identity["team2"] = identity["team2"].str.strip().str.lower()
         games_df = games_df.loc[~identity.duplicated(subset=["team1", "team2", "score1", "score2"])].reset_index(drop=True)
     qa_meta = {
+        "rebuilt_at": pd.Timestamp.utcnow().isoformat(),
         "files_loaded": len(files),
         "lines_scanned": lines_scanned,
         "games_parsed": games_before_dedup,
@@ -124,6 +134,15 @@ def load_games_pipeline(data_dir=DATA_DIR):
         "duplicates_dropped": games_before_dedup - len(games_df),
     }
     return games_df, qa_meta
+
+def load_games_pipeline(data_dir=DATA_DIR):
+    files = _discover_score_files(data_dir)
+    file_fingerprint = _build_file_fingerprint(files)
+    return _load_games_pipeline_cached(data_dir, file_fingerprint)
+
+def clear_score_pipeline_cache():
+    _load_games_pipeline_cached.clear()
+    load_scores.clear()
 
 def parse_scores_text(text):
     records = []
@@ -136,15 +155,6 @@ def parse_scores_text(text):
 def load_scores():
     games_df, _ = load_games_pipeline(DATA_DIR)
     return games_df
-
-def save_scores(df):
-    df.to_csv(SCORES_CSV, index=False)
-
-@st.cache_data
-def update_scores(existing, new_df):
-    combined = pd.concat([existing, new_df], ignore_index=True).drop_duplicates().reset_index(drop=True)
-    save_scores(combined)
-    return combined
 
 # ---------------- Inference ---------------- #
 @st.cache_data
@@ -643,14 +653,18 @@ def main():
 
     # Sidebar settings
     st.sidebar.header("Data & Model Settings")
-    with st.sidebar.expander("Upload Games"):
-        uploader = st.file_uploader("Upload scores .txt", type="txt")
-        raw_games = load_scores()
-        prior_games = raw_games.copy()
-        if uploader:
-            new_df = parse_scores_text(uploader.getvalue().decode())
-            if not new_df.empty:
-                raw_games = update_scores(raw_games, new_df)
+    with st.sidebar.expander("Data Refresh", expanded=True):
+        st.caption("Rankings are built directly from *_scores_illpolo.txt files in the repo.")
+        if st.button("Refresh from score files now", use_container_width=True):
+            clear_score_pipeline_cache()
+            st.rerun()
+
+    raw_games, qa_meta = load_games_pipeline(DATA_DIR)
+    prior_games = raw_games.copy()
+    rebuilt_ts = pd.to_datetime(qa_meta.get("rebuilt_at"), utc=True, errors="coerce")
+    rebuilt_label = rebuilt_ts.strftime("%Y-%m-%d %H:%M:%S UTC") if pd.notna(rebuilt_ts) else "unknown"
+    st.sidebar.markdown(f"**Freshness:** last rebuilt from files: `{rebuilt_label}`")
+    st.sidebar.markdown(f"**Files loaded:** `{qa_meta.get('files_loaded', 0)}`")
     with st.sidebar.expander("Advanced Settings", expanded=False):
         enable_overrides = st.checkbox("Enable UI overrides", value=False)
         logistic_cfg = config["logistic"]
