@@ -1700,19 +1700,61 @@ def main():
         ]])
         if is_deep_dive:
             st.markdown("### Model comparison")
-            st.caption("Model comparison: scan for disagreement bands where one model is much higher/lower than peers.")
-            heatmap_df = df_avg[["Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "Elo %tile"]].copy()
-            heatmap_long = heatmap_df.melt(id_vars="Team", var_name="Model", value_name="Percentile")
+            st.caption("Disagreement diagnostic: look for teams with large spread where model assumptions diverge.")
+            sort_mode = st.radio(
+                "Row sort",
+                options=["Disagreement (high to low)", "Ensemble rank"],
+                horizontal=True,
+                key="model_disagreement_sort_mode",
+            )
+            heatmap_df = df_avg[["Rank", "Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "Elo %tile"]].copy()
+            percentile_cols = ["Win %tile", "Pyth %tile", "AdjPyth %tile", "Elo %tile"]
+            heatmap_df["Team Mean"] = heatmap_df[percentile_cols].mean(axis=1)
+            heatmap_df["Spread"] = heatmap_df[percentile_cols].max(axis=1) - heatmap_df[percentile_cols].min(axis=1)
+            heatmap_df["Std Dev"] = heatmap_df[percentile_cols].std(axis=1, ddof=0)
+            if sort_mode == "Disagreement (high to low)":
+                ordered_teams = heatmap_df.sort_values(["Spread", "Std Dev", "Rank"], ascending=[False, False, True])["Team"].tolist()
+            else:
+                ordered_teams = heatmap_df.sort_values("Rank")["Team"].tolist()
+            heatmap_long = heatmap_df.melt(
+                id_vars=["Rank", "Team", "Team Mean", "Spread", "Std Dev"],
+                value_vars=percentile_cols,
+                var_name="Model",
+                value_name="Percentile",
+            )
+            heatmap_long["Deviation"] = heatmap_long["Percentile"] - heatmap_long["Team Mean"]
+
+            disagreement_indicator = alt.Chart(heatmap_df).mark_bar(size=10).encode(
+                y=alt.Y("Team:N", sort=ordered_teams, title=None),
+                x=alt.X("Spread:Q", title="Spread"),
+                color=alt.Color("Spread:Q", scale=alt.Scale(scheme="orangered"), legend=None),
+                tooltip=[
+                    "Team",
+                    alt.Tooltip("Spread:Q", format=".3f"),
+                    alt.Tooltip("Std Dev:Q", format=".3f"),
+                    alt.Tooltip("Team Mean:Q", format=".3f"),
+                ],
+            ).properties(width=90)
+
             model_heatmap = alt.Chart(heatmap_long).mark_rect().encode(
                 x=alt.X("Model:N", title=None),
-                y=alt.Y("Team:N", sort=elo_ord[:15], title=None),
+                y=alt.Y("Team:N", sort=ordered_teams, title=None),
                 color=alt.Color(
-                    "Percentile:Q",
-                    scale=alt.Scale(scheme="redyellowgreen"),
+                    "Deviation:Q",
+                    scale=alt.Scale(scheme="redblue", domainMid=0),
+                    title="Deviation from team mean",
                 ),
-                tooltip=["Team", "Model", alt.Tooltip("Percentile:Q", format=".3f")],
+                tooltip=[
+                    "Team",
+                    "Model",
+                    alt.Tooltip("Percentile:Q", format=".3f"),
+                    alt.Tooltip("Team Mean:Q", format=".3f"),
+                    alt.Tooltip("Deviation:Q", format="+.3f"),
+                    alt.Tooltip("Spread:Q", format=".3f"),
+                ],
             )
-            st.altair_chart(model_heatmap.properties(height=360), use_container_width=True)
+            disagreement_chart = alt.hconcat(disagreement_indicator, model_heatmap, spacing=8).resolve_scale(y="shared")
+            st.altair_chart(disagreement_chart.properties(height=360), use_container_width=True)
         st.markdown("### Expert Fit")
         illpolo_order = parse_expert_order_text(illpolo_text)
         maxpreps_order = parse_expert_order_text(maxpreps_text)
