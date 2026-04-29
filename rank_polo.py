@@ -779,22 +779,36 @@ def compute_rank_tie_break_key(team, stats, sos, h2h):
     stable_secondary = stats[team]["win_pct"]
     return (direct_h2h_win_pct, sos_adjusted_margin, stable_secondary)
 
-def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation):
+def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, ensemble_base_weights=None):
+    base_weights = ensemble_base_weights or {
+        "Elo": 0.45,
+        "Pyth": 0.30,
+        "AdjPyth": 0.20,
+        "Win": 0.05,
+    }
     model_pct = {name: rank_percentile_map(order) for name, order in orders.items()}
     rank_lookup = {name: {t: i + 1 for i, t in enumerate(order)} for name, order in orders.items()}
     rows = []
     for team in teams:
         _, confidence, games_ratio, coverage_ratio, imp_ratio = build_confidence_badge(team, stats, h2h, team_imputation, teams)
         reliability = max(0.0, confidence)
-        weights = {
-            "Win": reliability * (0.50 + 0.50 * coverage_ratio),
-            "Pyth": reliability * (0.50 + 0.50 * games_ratio),
-            "AdjPyth": reliability * (0.65 + 0.35 * (1 - imp_ratio)),
-            "Elo": reliability * (0.50 + 0.50 * coverage_ratio),
+        reliability_modulators = {
+            "Win": 0.50 + 0.50 * coverage_ratio,
+            "Pyth": 0.50 + 0.50 * games_ratio,
+            "AdjPyth": 0.65 + 0.35 * (1 - imp_ratio),
+            "Elo": 0.50 + 0.50 * coverage_ratio,
         }
-        weighted_sum = sum(weights[m] * model_pct[m].get(team, 0.0) for m in weights)
+        weights = {
+            model: base_weights[model] * reliability * reliability_modulators[model]
+            for model in base_weights
+        }
         total_weight = sum(weights.values())
-        calibrated_score = weighted_sum / total_weight if total_weight else 0.0
+        normalized_weights = {
+            model: (weights[model] / total_weight) if total_weight else 0.0
+            for model in weights
+        }
+        weighted_sum = sum(normalized_weights[m] * model_pct[m].get(team, 0.0) for m in normalized_weights)
+        calibrated_score = weighted_sum if total_weight else 0.0
         ordinal_ranks = [
             rank_lookup["Win"].get(team, len(orders["Win"]) + 1),
             rank_lookup["Pyth"].get(team, len(orders["Pyth"]) + 1),
@@ -820,6 +834,10 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation):
             "Weight Pyth": weights["Pyth"],
             "Weight AdjPyth": weights["AdjPyth"],
             "Weight Elo": weights["Elo"],
+            "Norm Weight Win": normalized_weights["Win"],
+            "Norm Weight Pyth": normalized_weights["Pyth"],
+            "Norm Weight AdjPyth": normalized_weights["AdjPyth"],
+            "Norm Weight Elo": normalized_weights["Elo"],
             "Games Ratio": games_ratio,
             "Coverage Ratio": coverage_ratio,
             "Imputation Rate": imp_ratio,
@@ -838,6 +856,12 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation):
 def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
     config = load_model_config()
+    ensemble_weights_cfg = {
+        "Elo": float(config.get("ensemble_weights", {}).get("Elo", 0.45)),
+        "Pyth": float(config.get("ensemble_weights", {}).get("Pyth", 0.30)),
+        "AdjPyth": float(config.get("ensemble_weights", {}).get("AdjPyth", 0.20)),
+        "Win": float(config.get("ensemble_weights", {}).get("Win", 0.05)),
+    }
 
     # Sidebar settings
     st.sidebar.header("Data & Model Settings")
@@ -983,7 +1007,7 @@ def main():
     teams    = sorted(stats.keys())
     model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
     global_prior_teams = [t for t in teams if t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
-    global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation)
+    global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg)
     global_prior_scores = dict(zip(global_prior_df["Team"], global_prior_df["Calibrated Score"]))
 
     # Compute sectional rankings
@@ -1139,13 +1163,14 @@ def main():
     with tabs[5]:
         st.subheader("Rankings by Calibrated Ensemble")
         eligible_teams = [t for t in teams if stats[t]['games'] >= thr and t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
-        df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation)
+        df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg)
         st.dataframe(df_avg[[
             "Rank", "Team", "Calibrated Score", "Ordinal Avg (Debug)", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"
         ]])
         st.caption("Per-team contribution breakdown (normalized model outputs × reliability-weighted contributions).")
         st.dataframe(df_avg[[
             "Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "Elo %tile",
+            "Norm Weight Win", "Norm Weight Pyth", "Norm Weight AdjPyth", "Norm Weight Elo",
             "Weight Win", "Weight Pyth", "Weight AdjPyth", "Weight Elo",
             "Games Ratio", "Coverage Ratio", "Imputation Rate"
         ]])
