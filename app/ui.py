@@ -729,17 +729,17 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
     raw_score = local_weight * ((h2h_score * p["h2h_weight"]) + (common_win_pct * p["common_weight"]) + (win_pct * p["win_pct_weight"])) + (effective_prior_weight * global_prior_score)
     fallback_score = global_prior_score
 
-    sectional_h2h_win_pct = (sectional_wins / sectional_h2h_games) if sectional_h2h_games > 0 else 0.5
+    sectional_h2h_win_pct = (sectional_wins / sectional_h2h_games) if sectional_h2h_games > 0 else 0.35
     # Add a coverage penalty so teams with sparse/no in-sectional games are
     # pulled down instead of receiving a neutral boost.
     avg_sectional_games_per_team = avg_sectional_games if avg_sectional_games > 0 else max(len(valid_teams) - 1, 1)
     sectional_game_coverage = min(sectional_h2h_games / max(avg_sectional_games_per_team, 1.0), 1.0)
-    coverage_floor = 0.75
+    coverage_floor = 0.55
     coverage_multiplier = coverage_floor + ((1.0 - coverage_floor) * sectional_game_coverage)
 
     # Apply a firm guardrail from in-sectional results so teams with weak
     # direct sectional performance cannot float too high on broad-season record.
-    results_multiplier = min(max(0.70 + (0.60 * sectional_h2h_win_pct), 0.70), 1.30)
+    results_multiplier = min(max(0.50 + (0.90 * sectional_h2h_win_pct), 0.50), 1.40)
     sectional_results_factor = results_multiplier * coverage_multiplier
     raw_score *= sectional_results_factor
     fallback_score *= sectional_results_factor
