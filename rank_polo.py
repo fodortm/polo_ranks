@@ -3,6 +3,8 @@ import os
 import re
 import math
 import json
+import hashlib
+from io import StringIO
 from collections import defaultdict
 from functools import cmp_to_key
 import streamlit as st
@@ -118,6 +120,43 @@ def compute_stats(games):
         st['gd']=st['gf']-st['ga']
     return stats,h2h
 
+def games_df_hash(games_df):
+    if games_df.empty:
+        return "empty"
+    ordered = games_df.sort_values(["team1", "team2", "score1", "score2"], kind="mergesort").reset_index(drop=True)
+    payload = ordered.to_csv(index=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+@st.cache_data
+def build_matchup_aggregate_cached(games_hash, games_csv):
+    _ = games_hash
+    df = pd.read_csv(StringIO(games_csv))
+    agg = defaultdict(lambda: {"wins": 0, "losses": 0, "gf": 0, "ga": 0, "games": 0})
+    for r in df.itertuples(index=False):
+        t1, t2, s1, s2 = r.team1, r.team2, int(r.score1), int(r.score2)
+        rec1 = agg[(t1, t2)]
+        rec1["gf"] += s1
+        rec1["ga"] += s2
+        rec1["games"] += 1
+        if s1 > s2:
+            rec1["wins"] += 1
+        elif s1 < s2:
+            rec1["losses"] += 1
+        rec2 = agg[(t2, t1)]
+        rec2["gf"] += s2
+        rec2["ga"] += s1
+        rec2["games"] += 1
+        if s2 > s1:
+            rec2["wins"] += 1
+        elif s2 < s1:
+            rec2["losses"] += 1
+    return dict(agg)
+
+def build_matchup_aggregate(games_df):
+    ghash = games_df_hash(games_df)
+    ordered = games_df.sort_values(["team1", "team2", "score1", "score2"], kind="mergesort").reset_index(drop=True)
+    return build_matchup_aggregate_cached(ghash, ordered.to_csv(index=False))
+
 # ---------------- Metrics ---------------- #
 @st.cache_data
 def compute_sos(stats):
@@ -227,7 +266,7 @@ SECTIONAL_SCORE_PARAMS = {
     "goal_diff_factor_scale": 0.05,
 }
 
-def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, params=None):
+def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, matchup_agg, params=None):
     p = {**SECTIONAL_SCORE_PARAMS, **(params or {})}
     valid_teams = [t for t in sectional if t in stats]
     if team not in stats:
@@ -288,8 +327,9 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, pa
     for opp in non_sectional_opps:
         if opp not in stats:
             continue
-        wins = sum(1 for r in games.itertuples() if (r.team1 == team and r.team2 == opp and r.score1 > r.score2) or (r.team2 == team and r.team1 == opp and r.score2 > r.score1))
-        losses = sum(1 for r in games.itertuples() if (r.team1 == team and r.team2 == opp and r.score1 < r.score2) or (r.team2 == team and r.team1 == opp and r.score2 < r.score1))
+        rec = matchup_agg.get((team, opp), {"wins": 0, "losses": 0, "games": 0, "gf": 0, "ga": 0})
+        wins = rec["wins"]
+        losses = rec["losses"]
         if wins + losses == 0:
             continue
         opp_strength, opp_sos = stats[opp]["win_pct"], sos[opp]
@@ -328,7 +368,7 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, pa
         "h2h_details": h2h_details, "non_sectional_common_details": non_sectional_details, "sectional_common_details": sectional_details,
     }
 
-def compute_sectional_rankings(stats, h2h, games_inferred, sos, sectional_params=None):
+def compute_sectional_rankings(stats, h2h, games_inferred, sos, matchup_agg, sectional_params=None):
     sectionals = {
         "Barrington": ["Hersey", "Barrington", "Elk Grove", "Conant", "Hoffman Estates", "McHenry", "Fremd", "Palatine", "Meadows", "Schaumburg"],
         "Chicago (Lane)": ["Amundsen", "Jones-Payton", "Kenwood", "Lane", "Latin", "Senn", "St Ignatius", "Whitney Young"],
@@ -342,7 +382,7 @@ def compute_sectional_rankings(stats, h2h, games_inferred, sos, sectional_params
     sectional_breakdowns = {}
     def rank_teams_in_sectional(teams, sectional_name):
         team_breakdowns = {
-            team: compute_sectional_team_breakdown(team, teams, stats, h2h, games_inferred, sos, params=sectional_params)
+            team: compute_sectional_team_breakdown(team, teams, stats, h2h, games_inferred, sos, matchup_agg, params=sectional_params)
             for team in teams
         }
         for team, breakdown in team_breakdowns.items():
@@ -453,9 +493,10 @@ def main():
     adj_vals = compute_adjusted_pythag(games_inferred, stats, k=k, x0=x0)
     adj_ord, _ = rank_adj_pyth(stats, games_inferred, h2h, k=k, x0=x0)
     elo = compute_elo(games_inferred, initial=elo_cfg["initial"], k=elo_k)
+    matchup_agg = build_matchup_aggregate(games_inferred)
     
     # Compute sectional rankings
-    sectional_rankings, sectional_order, sectional_breakdowns = compute_sectional_rankings(stats, h2h, games_inferred, sos, sectional_params=active_sectional_params)
+    sectional_rankings, sectional_order, sectional_breakdowns = compute_sectional_rankings(stats, h2h, games_inferred, sos, matchup_agg, sectional_params=active_sectional_params)
     
     # Orders & filters
     win_ord = rank_win_pct(stats,h2h)
@@ -509,18 +550,12 @@ def main():
             dfc = []
             for c in com:
                 try:
-                    wins_te = sum(1 for r in games_inferred.itertuples() 
-                                if (r.team1==te and r.team2==c and r.score1>r.score2) 
-                                or (r.team2==te and r.team1==c and r.score2>r.score1))
-                    losses_te = sum(1 for r in games_inferred.itertuples() 
-                                  if (r.team1==te and r.team2==c and r.score1<r.score2) 
-                                  or (r.team2==te and r.team1==c and r.score2<r.score1))
-                    wins_opp = sum(1 for r in games_inferred.itertuples() 
-                                 if (r.team1==opp and r.team2==c and r.score1>r.score2) 
-                                 or (r.team2==opp and r.team1==c and r.score2>r.score1))
-                    losses_opp = sum(1 for r in games_inferred.itertuples() 
-                                   if (r.team1==opp and r.team2==c and r.score1<r.score2) 
-                                   or (r.team2==opp and r.team1==c and r.score2<r.score1))
+                    rec_te = matchup_agg.get((te, c), {"wins": 0, "losses": 0})
+                    rec_opp = matchup_agg.get((opp, c), {"wins": 0, "losses": 0})
+                    wins_te = rec_te["wins"]
+                    losses_te = rec_te["losses"]
+                    wins_opp = rec_opp["wins"]
+                    losses_opp = rec_opp["losses"]
                     
                     dfc.append({
                         'Opp': c,
