@@ -423,14 +423,17 @@ def rank_adj_pyth(stats,games,h2h,k=10,x0=0.5, imputed_mode="full", imputed_weig
         final.append(t)
     return final, vals
 @st.cache_data
-def compute_elo(games,initial=1500,k=32):
+def compute_elo(games, initial=1500, k=32, phase_k_enabled=False, early_phase_games=40, early_phase_multiplier=1.15, late_phase_multiplier=0.9):
     teams=set(games['team1']).union(games['team2'])
     R={t:initial for t in teams}
-    for _,r in games.iterrows():
+    total_games = len(games)
+    phase_cutoff = max(0, min(int(early_phase_games), total_games))
+    for idx, r in enumerate(games.itertuples(), start=1):
+        game_k = k * (early_phase_multiplier if (phase_k_enabled and idx <= phase_cutoff) else (late_phase_multiplier if phase_k_enabled else 1.0))
         a,b,sa,sb=r.team1,r.team2,r.score1,r.score2
         ea=1/(1+10**((R[b]-R[a])/400)); eb=1-ea
         aa,ab = (1,0) if sa>sb else ((0,1) if sb>sa else (0.5,0.5))
-        R[a]+=k*(aa-ea); R[b]+=k*(ab-eb)
+        R[a]+=game_k*(aa-ea); R[b]+=game_k*(ab-eb)
     return R
 @st.cache_data
 def rank_elo(stats,elo):
@@ -963,7 +966,11 @@ def main():
 
         k = st.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=int(logistic_cfg["k"]), disabled=not enable_overrides)
         x0 = st.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=float(logistic_cfg["x0"]), step=0.05, disabled=not enable_overrides)
-        elo_k = st.slider("Elo K", min_value=1, max_value=64, value=int(elo_cfg["k"]), disabled=not enable_overrides)
+        elo_k = st.slider("Elo K", min_value=1, max_value=64, value=int(elo_cfg.get("k", 22)), disabled=not enable_overrides)
+        phase_k_enabled = st.toggle("Enable phase-based Elo K", value=bool(elo_cfg.get("phase_k_enabled", False)), disabled=not enable_overrides)
+        early_phase_games = st.slider("Early-phase game count", min_value=0, max_value=200, value=int(elo_cfg.get("early_phase_games", 40)), disabled=(not enable_overrides or not phase_k_enabled))
+        early_phase_multiplier = st.slider("Early-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("early_phase_multiplier", 1.15)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
+        late_phase_multiplier = st.slider("Late-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("late_phase_multiplier", 0.9)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
         pythag_exp = st.slider("Pythagorean Exponent", min_value=1.0, max_value=5.0, value=float(pythag_cfg["exponent"]), step=0.1, disabled=not enable_overrides)
         include_inferred_margins = st.toggle("Include inferred margins", value=True)
         down_weight_imputed = st.toggle("Down-weight inferred games", value=False, disabled=not include_inferred_margins)
@@ -1014,7 +1021,14 @@ def main():
     active_config = {
         "source": "UI overrides" if enable_overrides else f"defaults from {CONFIG_JSON}",
         "logistic": {"k": k, "x0": x0},
-        "elo": {"k": elo_k, "initial": elo_cfg["initial"]},
+        "elo": {
+            "k": elo_k,
+            "initial": elo_cfg["initial"],
+            "phase_k_enabled": phase_k_enabled,
+            "early_phase_games": early_phase_games,
+            "early_phase_multiplier": early_phase_multiplier,
+            "late_phase_multiplier": late_phase_multiplier,
+        },
         "pythag": {"exponent": pythag_exp},
         "imputed_games": {
             "include_inferred_margins": include_inferred_margins,
@@ -1055,7 +1069,19 @@ def main():
     py = compute_pythag(games_inferred, stats, exp=pythag_exp, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
     adj_vals = compute_adjusted_pythag(games_inferred, stats, k=k, x0=x0, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
     adj_ord, _ = rank_adj_pyth(stats, games_inferred, h2h, k=k, x0=x0, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
-    elo = compute_elo(games_inferred, initial=elo_cfg["initial"], k=elo_k)
+    elo_phase_enabled = phase_k_enabled if enable_overrides else bool(elo_cfg.get("phase_k_enabled", False))
+    elo_phase_games = early_phase_games if enable_overrides else int(elo_cfg.get("early_phase_games", 40))
+    elo_early_mult = early_phase_multiplier if enable_overrides else float(elo_cfg.get("early_phase_multiplier", 1.15))
+    elo_late_mult = late_phase_multiplier if enable_overrides else float(elo_cfg.get("late_phase_multiplier", 0.9))
+    elo = compute_elo(
+        games_inferred,
+        initial=elo_cfg["initial"],
+        k=elo_k,
+        phase_k_enabled=elo_phase_enabled,
+        early_phase_games=elo_phase_games,
+        early_phase_multiplier=elo_early_mult,
+        late_phase_multiplier=elo_late_mult,
+    )
     matchup_agg = build_matchup_aggregate(games_inferred)
     
     # Orders & filters
@@ -1213,6 +1239,7 @@ def main():
     # Elo tab
     with tabs[4]:
         st.subheader("Rankings by Elo")
+        st.caption("Elo volatility has been intentionally reduced to better match expert poll stability.")
         df_elo=pd.DataFrame({'Team':elo_ord,
                              'Elo':[f"{elo[t]:.1f}" for t in elo_ord],
                              'SOS':[f"{sos[t]:.3f}" for t in elo_ord]})

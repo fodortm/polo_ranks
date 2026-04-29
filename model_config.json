@@ -4,8 +4,12 @@
     "x0": 0.5
   },
   "elo": {
-    "k": 32,
-    "initial": 1500
+    "k": 22,
+    "initial": 1500,
+    "phase_k_enabled": false,
+    "early_phase_games": 40,
+    "early_phase_multiplier": 1.15,
+    "late_phase_multiplier": 0.9
   },
   "pythag": {
     "exponent": 2
