@@ -1,0 +1,9 @@
+{
+  "aliases": {
+    "chicago u": "U-Chicago",
+    "chicago-u": "U-Chicago"
+  },
+  "cleanup_suffix_patterns": [
+    "\\s*\\((?:\\d+(?:st|nd|rd|th)\\s+Place|Final)\\)\\s*$"
+  ]
+}
