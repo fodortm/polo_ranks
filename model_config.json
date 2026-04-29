@@ -26,6 +26,9 @@
     "sectional_sos_boost": 1.1,
     "base_common_weight": 0.7,
     "common_weight_scale": 0.6,
-    "goal_diff_factor_scale": 0.05
+    "goal_diff_factor_scale": 0.05,
+    "reliability_floor": 0.35,
+    "reliability_ceiling": 0.95,
+    "reliability_shrink_k": 6.0
   }
 }
