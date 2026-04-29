@@ -210,6 +210,7 @@ def rank_elo(stats,elo):
 
 # ---------------- Sectional Rankings ---------------- #
 def compute_sectional_rankings(stats, h2h, games_inferred):
+    sos = compute_sos(stats)
     sectionals = {
         "Barrington": ["Hersey", "Barrington", "Elk Grove", "Conant", "Hoffman Estates", "McHenry", "Fremd", "Palatine", "Meadows", "Schaumburg"],
         "Chicago (Lane)": ["Amundsen", "Jones-Payton", "Kenwood", "Lane", "Latin", "Senn", "St Ignatius", "Whitney Young"],
