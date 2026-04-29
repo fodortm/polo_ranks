@@ -570,13 +570,20 @@ def compute_shared_opponent_score(team, valid_teams, team_vectors, stats, p):
         games = rec["games"]
         total_games += games
         value = rec["win_rate"] if metric == "win_rate" else rec["margin_per_game"]
-        weighted_metric_sum += (value * games)
+        opp_strength = stats[opp]["win_pct"]
+        # Discount results against weak shared opponents so teams cannot
+        # inflate sectional placement purely by farming low-quality common foes.
+        strength_scale = min(max(opp_strength / 0.5, 0.6), 1.4)
+        adjusted_value = value * strength_scale if metric == "win_rate" else value
+        weighted_metric_sum += (adjusted_value * games)
         detail_rows.append({
             "Opponent": opp,
             "Record": f"{rec['wins']}-{rec['losses']}",
             "Games": games,
             "Win %": rec["win_rate"],
             "Margin/Game": rec["margin_per_game"],
+            "Opp Win %": opp_strength,
+            "Strength Scale": strength_scale,
             "Included Teams": sorted(opp_coverage.get(opp, [])),
         })
 
