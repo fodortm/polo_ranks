@@ -26,6 +26,11 @@ TEAM_ALIASES = {
     "chicago u": "U-Chicago",
     "chicago-u": "U-Chicago",
 }
+SEMANTIC_COLORS = {
+    "positive": "#2E8540",
+    "negative": "#B50909",
+    "neutral": "#6B7280",
+}
 
 # ---------------- Parsing ---------------- #
 def _parse_line(line):
@@ -154,6 +159,33 @@ def load_games_pipeline(data_dir=DATA_DIR):
 def clear_score_pipeline_cache():
     _load_games_pipeline_cached.clear()
     load_scores.clear()
+
+def _week_label_from_path(path):
+    name = os.path.basename(path).replace("_scores_illpolo.txt", "")
+    return name.replace("_", " ").title()
+
+def compute_weekly_rank_history(data_dir=DATA_DIR):
+    files = _discover_score_files(data_dir)
+    parsed_rows = []
+    rank_rows = []
+    for week_num, path in enumerate(files, start=1):
+        week_label = _week_label_from_path(path)
+        with open(path, "r", encoding="utf-8") as fh:
+            for line in fh:
+                parsed = _parse_game_line_anchored(line)
+                if parsed is not None:
+                    parsed_rows.append(parsed)
+        week_games = pd.DataFrame(parsed_rows, columns=["team1", "score1", "team2", "score2"])
+        if week_games.empty:
+            continue
+        scored_games = week_games.dropna(subset=["score1"])
+        base_stats, _ = compute_stats(scored_games)
+        inferred = infer_default_scores(week_games, base_stats)
+        week_stats, week_h2h = compute_stats(inferred)
+        week_order = rank_win_pct(week_stats, week_h2h)
+        for rank, team in enumerate(week_order, start=1):
+            rank_rows.append({"team": team, "rank": rank, "week_num": week_num, "week_label": week_label})
+    return pd.DataFrame(rank_rows)
 
 def parse_scores_text(text):
     records = []
@@ -1275,6 +1307,45 @@ def main():
         top_teams = pd.DataFrame({"Rank": range(1, min(11, len(elo_ord)+1)), "Team": elo_ord[:10]})
         st.markdown("**Top teams right now**")
         st.dataframe(top_teams, use_container_width=True)
+        st.caption("Top 10 snapshot: focus on who is separating from the pack right now.")
+        top10_chart_df = pd.DataFrame(
+            [{"Team": t, "Rank": i + 1, "WinPct": stats[t]["win_pct"]} for i, t in enumerate(elo_ord[:10])]
+        )
+        top10_chart_df["Outcome"] = top10_chart_df["WinPct"].apply(
+            lambda v: "positive" if v >= 0.6 else ("negative" if v < 0.4 else "neutral")
+        )
+        top10_chart = alt.Chart(top10_chart_df).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+            x=alt.X("Team:N", sort=None),
+            y=alt.Y("WinPct:Q", title="Win %"),
+            color=alt.Color(
+                "Outcome:N",
+                scale=alt.Scale(
+                    domain=["positive", "neutral", "negative"],
+                    range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
+                ),
+                legend=None,
+            ),
+            tooltip=["Rank", "Team", alt.Tooltip("WinPct:Q", format=".3f")],
+        )
+        st.altair_chart(top10_chart, use_container_width=True)
+
+        weekly_ranks = compute_weekly_rank_history(DATA_DIR)
+        if not weekly_ranks.empty:
+            trend_teams = elo_ord[:6] if len(elo_ord) >= 6 else elo_ord
+            trend_df = weekly_ranks[weekly_ranks["team"].isin(trend_teams)].copy()
+            trend_df["Movement"] = trend_df.groupby("team")["rank"].diff().fillna(0)
+            trend_df["MovementSemantics"] = trend_df["Movement"].apply(
+                lambda v: "positive" if v < 0 else ("negative" if v > 0 else "neutral")
+            )
+            st.markdown("**Trend over weeks**")
+            st.caption("Trend over weeks: look for steady climbs (downward lines) as signals of momentum.")
+            trend_chart = alt.Chart(trend_df).mark_line(point=True).encode(
+                x=alt.X("week_num:O", title="Week"),
+                y=alt.Y("rank:Q", title="Rank (1 is best)", scale=alt.Scale(reverse=True)),
+                color=alt.Color("team:N", legend=alt.Legend(title="Team")),
+                tooltip=["week_label", "team", "rank"],
+            )
+            st.altair_chart(trend_chart, use_container_width=True)
 
         streak_rows = []
         for t in teams:
@@ -1313,6 +1384,31 @@ def main():
         opp=st.selectbox("Compare vs", compare_teams, index=default_compare_index)
         h = h2h.get((te,opp),{'wins':0,'games':0})
         st.markdown(f"**H2H**: {h['wins']}-{h['games']-h['wins']} in {h['games']} games")
+        st.caption("Head-to-head explorer: compare direct results and matchup-specific performance signals.")
+        matchup_games = []
+        for g in games_inferred.itertuples():
+            if {g.team1, g.team2} == {te, opp}:
+                if g.team1 == te:
+                    my_score, opp_score = g.score1, g.score2
+                else:
+                    my_score, opp_score = g.score2, g.score1
+                outcome = "positive" if my_score > opp_score else ("negative" if my_score < opp_score else "neutral")
+                matchup_games.append({"Team": te, "Opponent": opp, "For": my_score, "Against": opp_score, "Outcome": outcome})
+        if matchup_games:
+            matchup_df = pd.DataFrame(matchup_games)
+            matchup_chart = alt.Chart(matchup_df).mark_bar().encode(
+                x=alt.X("For:Q", title=f"{te} Goals"),
+                y=alt.Y("Against:Q", title=f"{opp} Goals"),
+                color=alt.Color(
+                    "Outcome:N",
+                    scale=alt.Scale(
+                        domain=["positive", "neutral", "negative"],
+                        range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
+                    ),
+                ),
+                tooltip=["For", "Against", "Outcome"],
+            )
+            st.altair_chart(matchup_chart, use_container_width=True)
         st.write(f"{opp} Ranks: Win% #{win_ord.index(opp)+1 if opp in win_ord else '-'} (SOS {sos[opp]:.3f}), "
                  f"Pyth #{py_ord.index(opp)+1 if opp in py_ord else '-'} (SOS {sos[opp]:.3f}), "
                  f"AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'} (SOS {sos[opp]:.3f}), "
@@ -1440,6 +1536,21 @@ def main():
             "Games Ratio", "Coverage Ratio", "Imputation Rate", "Resume Breadth Damping",
             "Unique Opponents", "Unique Opponent Ratio", "Breadth Raw Score"
         ]])
+        if is_deep_dive:
+            st.markdown("### Model comparison")
+            st.caption("Model comparison: scan for disagreement bands where one model is much higher/lower than peers.")
+            heatmap_df = df_avg[["Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "Elo %tile"]].copy()
+            heatmap_long = heatmap_df.melt(id_vars="Team", var_name="Model", value_name="Percentile")
+            model_heatmap = alt.Chart(heatmap_long).mark_rect().encode(
+                x=alt.X("Model:N", title=None),
+                y=alt.Y("Team:N", sort=elo_ord[:15], title=None),
+                color=alt.Color(
+                    "Percentile:Q",
+                    scale=alt.Scale(scheme="redyellowgreen"),
+                ),
+                tooltip=["Team", "Model", alt.Tooltip("Percentile:Q", format=".3f")],
+            )
+            st.altair_chart(model_heatmap.properties(height=360), use_container_width=True)
         st.markdown("### Expert Fit")
         illpolo_order = parse_expert_order_text(illpolo_text)
         maxpreps_order = parse_expert_order_text(maxpreps_text)
