@@ -779,7 +779,7 @@ def compute_rank_tie_break_key(team, stats, sos, h2h):
     stable_secondary = stats[team]["win_pct"]
     return (direct_h2h_win_pct, sos_adjusted_margin, stable_secondary)
 
-def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, ensemble_base_weights=None):
+def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, ensemble_base_weights=None, win_model_cap=None):
     base_weights = ensemble_base_weights or {
         "Elo": 0.45,
         "Pyth": 0.30,
@@ -802,6 +802,14 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
             model: base_weights[model] * reliability * reliability_modulators[model]
             for model in base_weights
         }
+        win_cap_cfg = win_model_cap or {}
+        win_cap_max = float(win_cap_cfg.get("max_multiplier", 0.85))
+        win_cov_floor = float(win_cap_cfg.get("coverage_floor", 0.65))
+        win_imp_ceiling = float(win_cap_cfg.get("imputation_ceiling", 0.30))
+        cov_cap_ratio = min(1.0, coverage_ratio / max(win_cov_floor, 1e-9)) if win_cov_floor > 0 else 1.0
+        imp_cap_ratio = min(1.0, max(0.0, (1.0 - imp_ratio) / max(1.0 - win_imp_ceiling, 1e-9))) if win_imp_ceiling < 1.0 else 1.0
+        win_cap_multiplier = min(win_cap_max, cov_cap_ratio, imp_cap_ratio)
+        weights["Win"] *= max(0.0, min(1.0, win_cap_multiplier))
         total_weight = sum(weights.values())
         normalized_weights = {
             model: (weights[model] / total_weight) if total_weight else 0.0
@@ -862,6 +870,11 @@ def main():
         "AdjPyth": float(config.get("ensemble_weights", {}).get("AdjPyth", 0.20)),
         "Win": float(config.get("ensemble_weights", {}).get("Win", 0.05)),
     }
+    win_model_cap_cfg = config.get("win_model_cap", {
+        "max_multiplier": 0.85,
+        "coverage_floor": 0.65,
+        "imputation_ceiling": 0.30,
+    })
 
     # Sidebar settings
     st.sidebar.header("Data & Model Settings")
@@ -964,6 +977,7 @@ def main():
 
     with st.sidebar.expander("Model Settings", expanded=False):
         st.caption("Active model configuration for reproducibility")
+        st.caption("Win% is intentionally low-trust in composite scoring and receives an additional reliability cap in the ensemble.")
         st.json(active_config)
     
     # Initial stats
@@ -1007,7 +1021,7 @@ def main():
     teams    = sorted(stats.keys())
     model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
     global_prior_teams = [t for t in teams if t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
-    global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg)
+    global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg)
     global_prior_scores = dict(zip(global_prior_df["Team"], global_prior_df["Calibrated Score"]))
 
     # Compute sectional rankings
@@ -1163,7 +1177,7 @@ def main():
     with tabs[5]:
         st.subheader("Rankings by Calibrated Ensemble")
         eligible_teams = [t for t in teams if stats[t]['games'] >= thr and t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
-        df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg)
+        df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg)
         st.dataframe(df_avg[[
             "Rank", "Team", "Calibrated Score", "Ordinal Avg (Debug)", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"
         ]])
