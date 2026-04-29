@@ -451,7 +451,98 @@ SECTIONAL_SCORE_PARAMS = {
     "base_common_weight": 0.7,
     "common_weight_scale": 0.6,
     "goal_diff_factor_scale": 0.05,
+    "shared_opponent_mode": "pairwise",
+    "shared_opponent_min_teams": 2,
+    "shared_games_threshold": 3,
+    "shared_shrink_k": 4.0,
+    "shared_metric": "win_rate",
 }
+
+def build_team_opponent_vectors(team, matchup_agg):
+    vectors = {}
+    for (src, opp), rec in matchup_agg.items():
+        if src != team:
+            continue
+        if rec["games"] <= 0:
+            continue
+        vectors[opp] = {
+            "wins": rec["wins"],
+            "losses": rec["losses"],
+            "games": rec["games"],
+            "gf": rec.get("gf", 0),
+            "ga": rec.get("ga", 0),
+            "win_rate": (rec["wins"] / rec["games"]) if rec["games"] else 0.5,
+            "margin_per_game": ((rec.get("gf", 0) - rec.get("ga", 0)) / rec["games"]) if rec["games"] else 0.0,
+        }
+    return vectors
+
+def compute_shared_opponent_score(team, valid_teams, team_vectors, stats, p):
+    if team not in team_vectors:
+        return 0.5, 0, []
+
+    mode = p.get("shared_opponent_mode", "pairwise")
+    min_teams = max(int(p.get("shared_opponent_min_teams", 2)), 2)
+    metric = p.get("shared_metric", "win_rate")
+
+    opp_coverage = defaultdict(set)
+    for sectional_team in valid_teams:
+        for opp in team_vectors.get(sectional_team, {}):
+            if opp in valid_teams:
+                continue
+            opp_coverage[opp].add(sectional_team)
+
+    if mode == "sectional":
+        shared_pool = {opp for opp, covered in opp_coverage.items() if len(covered) >= min_teams}
+    else:
+        shared_pool = set()
+        for other in valid_teams:
+            if other == team:
+                continue
+            team_opps = set(team_vectors.get(team, {}).keys()) - set(valid_teams)
+            other_opps = set(team_vectors.get(other, {}).keys()) - set(valid_teams)
+            shared_pool.update(team_opps & other_opps)
+
+    if not shared_pool:
+        return 0.5, 0, []
+
+    detail_rows = []
+    weighted_metric_sum = 0.0
+    total_games = 0
+    for opp in sorted(shared_pool):
+        rec = team_vectors[team].get(opp)
+        if not rec or rec["games"] <= 0 or opp not in stats:
+            continue
+        games = rec["games"]
+        total_games += games
+        value = rec["win_rate"] if metric == "win_rate" else rec["margin_per_game"]
+        weighted_metric_sum += (value * games)
+        detail_rows.append({
+            "Opponent": opp,
+            "Record": f"{rec['wins']}-{rec['losses']}",
+            "Games": games,
+            "Win %": rec["win_rate"],
+            "Margin/Game": rec["margin_per_game"],
+            "Included Teams": sorted(opp_coverage.get(opp, [])),
+        })
+
+    if total_games == 0:
+        return 0.5, 0, detail_rows
+
+    if metric == "win_rate":
+        observed_score = weighted_metric_sum / total_games
+        neutral = 0.5
+    else:
+        avg_margin = weighted_metric_sum / total_games
+        observed_score = 1.0 / (1.0 + math.exp(-avg_margin))
+        neutral = 0.5
+
+    threshold = max(int(p.get("shared_games_threshold", 3)), 1)
+    shrink_k = max(float(p.get("shared_shrink_k", 4.0)), 1e-6)
+    if total_games < threshold:
+        shrink = total_games / (total_games + shrink_k)
+        observed_score = (shrink * observed_score) + ((1 - shrink) * neutral)
+
+    return observed_score, total_games, detail_rows
 
 def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, matchup_agg, params=None):
     p = {**SECTIONAL_SCORE_PARAMS, **(params or {})}
@@ -502,33 +593,13 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
         h2h_details.append({"Opponent": opp, "Record": f"{r['wins']}-{r['games']-r['wins']}", "Win %": win_pct, "Opp Win %": opp_strength, "Opp SOS": opp_sos, "SOS Mult": sos_multiplier, "Adj Strength": adjusted_strength, "GD Factor": goal_diff_factor, "Weighted Score": weighted_score})
     h2h_score = (sum(h2h_scores) / len(h2h_scores)) if h2h_scores else 0.0
 
-    common_opps = set()
-    for opp in valid_teams:
-        common_opps.update(stats[opp]["opponents"])
-    sectional_opps = set(valid_teams)
-    non_sectional_opps = common_opps - sectional_opps
-
+    team_vectors = {t: build_team_opponent_vectors(t, matchup_agg) for t in valid_teams}
     common_wins_weighted = 0.0
     common_games = 0
     non_sectional_details, sectional_details = [], []
-    for opp in non_sectional_opps:
-        if opp not in stats:
-            continue
-        rec = matchup_agg.get((team, opp), {"wins": 0, "losses": 0, "games": 0, "gf": 0, "ga": 0})
-        wins = rec["wins"]
-        losses = rec["losses"]
-        if wins + losses == 0:
-            continue
-        opp_strength, opp_sos = stats[opp]["win_pct"], sos[opp]
-        sos_multiplier = 1.0 + ((opp_sos - p["sos_center"]) * p["sos_scale"])
-        adjusted_strength = opp_strength * sos_multiplier
-        weight = p["base_common_weight"] + (p["common_weight_scale"] * (adjusted_strength / avg_opp_win_pct))
-        weighted_wins = wins * weight
-        common_wins_weighted += weighted_wins
-        common_games += (wins + losses)
-        non_sectional_details.append({"Opponent": opp, "Record": f"{wins}-{losses}", "Opp Win %": opp_strength, "Opp SOS": opp_sos, "SOS Mult": sos_multiplier, "Adj Strength": adjusted_strength, "Weight": weight, "Weighted Wins": weighted_wins})
+    common_win_pct, common_games, non_sectional_details = compute_shared_opponent_score(team, valid_teams, team_vectors, stats, p)
 
-    for opp in sectional_opps:
+    for opp in set(valid_teams):
         if opp == team or opp not in stats:
             continue
         r = h2h.get((team, opp), {"wins": 0, "games": 0, "gf": 0, "ga": 0})
@@ -543,7 +614,7 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
         # be double-counted in the common-opponent component.
         sectional_details.append({"Opponent": opp, "Record": f"{r['wins']}-{r['games']-r['wins']}", "Win %": (r["wins"] / r["games"]), "Opp Win %": opp_strength, "Opp SOS": opp_sos, "SOS Mult": sos_multiplier, "Adj Strength": adjusted_strength, "Weight": weight, "Weighted Score": ((r["wins"] / r["games"]) * weight)})
 
-    common_win_pct = (common_wins_weighted / common_games) if common_games > 0 else 0.0
+    common_wins_weighted = common_win_pct * common_games
     win_pct = stats[team]["win_pct"]
     combined_score = ((h2h_score * p["h2h_weight"]) + (common_win_pct * p["common_weight"]) + (win_pct * p["win_pct_weight"])) * game_penalty * sectional_penalty
 
