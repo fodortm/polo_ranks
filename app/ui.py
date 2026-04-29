@@ -298,6 +298,14 @@ def infer_default_scores(games_df, stats):
         df.at[idx,'is_imputed'] = True
     return df
 
+def add_imputation_markers(df, include_estimated_scores=True, highlight_estimated_games=True):
+    view = df.copy()
+    has_imputed = view.get("is_imputed", pd.Series(False, index=view.index)).fillna(False).astype(bool)
+    if include_estimated_scores:
+        marker = " 🧩" if highlight_estimated_games else ""
+        view["Team"] = view["Team"].astype(str) + has_imputed.map(lambda x: marker if x else "")
+    return view
+
 # ---------------- Stats ---------------- #
 @st.cache_data
 def compute_stats(games):
@@ -1210,9 +1218,10 @@ def main():
             early_phase_multiplier = st.slider("Early-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("early_phase_multiplier", 1.15)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
             late_phase_multiplier = st.slider("Late-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("late_phase_multiplier", 0.9)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
             pythag_exp = st.slider("Pythagorean Exponent", min_value=1.0, max_value=5.0, value=float(pythag_cfg["exponent"]), step=0.1, disabled=not enable_overrides)
-            include_inferred_margins = st.toggle("Include inferred margins", value=True)
-            down_weight_imputed = st.toggle("Down-weight inferred games", value=False, disabled=not include_inferred_margins)
-            imputed_weight = st.slider("Inferred game weight", min_value=0.0, max_value=1.0, value=0.5, step=0.05, disabled=(not include_inferred_margins or not down_weight_imputed))
+            include_estimated_scores = st.toggle("Include estimated scores", value=True)
+            highlight_estimated_games = st.toggle("Highlight estimated games", value=True)
+            down_weight_imputed = st.toggle("Down-weight inferred games", value=False)
+            imputed_weight = st.slider("Inferred game weight", min_value=0.0, max_value=1.0, value=0.5, step=0.05, disabled=(not down_weight_imputed))
             min_games_ratio = st.slider("Min Games Ratio", min_value=0.1, max_value=1.0, value=float(game_count_cfg["min_games_ratio"]), step=0.05, disabled=not enable_overrides)
 
             st.markdown("**Sectional Weights**")
@@ -1241,7 +1250,7 @@ def main():
         k = int(logistic_cfg["k"]); x0 = float(logistic_cfg["x0"]); elo_k = int(elo_cfg.get("k",22))
         phase_k_enabled = bool(elo_cfg.get("phase_k_enabled", False)); early_phase_games = int(elo_cfg.get("early_phase_games", 40))
         early_phase_multiplier = float(elo_cfg.get("early_phase_multiplier", 1.15)); late_phase_multiplier = float(elo_cfg.get("late_phase_multiplier", 0.9))
-        pythag_exp = float(pythag_cfg["exponent"]); include_inferred_margins = True; down_weight_imputed = False; imputed_weight = 0.5
+        pythag_exp = float(pythag_cfg["exponent"]); include_estimated_scores = True; highlight_estimated_games = True; down_weight_imputed = False; imputed_weight = 0.5
         min_games_ratio = float(game_count_cfg["min_games_ratio"])
         h2h_weight = float(sectional_cfg["h2h_weight"]); common_weight = float(sectional_cfg["common_weight"]); win_pct_weight = float(sectional_cfg["win_pct_weight"])
         sos_center = float(sectional_cfg["sos_center"]); sos_scale = float(sectional_cfg["sos_scale"]); sectional_sos_boost = float(sectional_cfg["sectional_sos_boost"])
@@ -1282,7 +1291,8 @@ def main():
         },
         "pythag": {"exponent": pythag_exp},
         "imputed_games": {
-            "include_inferred_margins": include_inferred_margins,
+            "include_estimated_scores": include_estimated_scores,
+            "highlight_estimated_games": highlight_estimated_games,
             "down_weight_imputed": down_weight_imputed,
             "imputed_weight": imputed_weight,
         },
@@ -1313,8 +1323,8 @@ def main():
             initial_stats[t] = {'wins':0,'losses':0,'ties':0,'gf':0,'ga':0,'games':0,'opponents':[]}
     # Infer defaults
     games_inferred = infer_default_scores(raw_games, initial_stats)
-    imputed_mode = "full" if include_inferred_margins else "binary"
-    if include_inferred_margins and down_weight_imputed:
+    imputed_mode = "full"
+    if down_weight_imputed:
         imputed_mode = "down_weight"
     team_imputation = defaultdict(lambda: {"imputed": 0, "games": 0})
     for r in games_inferred.itertuples():
@@ -1323,6 +1333,8 @@ def main():
             team_imputation[team]["games"] += 1
             if imp:
                 team_imputation[team]["imputed"] += 1
+    st.caption("Estimated scores are generated when results contain winner-only notation (e.g., ‘Team A d. Team B’).")
+
     # Final stats
     stats,h2h = compute_stats(games_inferred)
     sos = compute_sos(stats)
@@ -1682,7 +1694,10 @@ def main():
             ).properties(height=220)
 
             st.altair_chart((margin_chart | outcome_chart).resolve_scale(color="shared"), use_container_width=True)
-            st.dataframe(matchup_df[["Week/Date", "Scoreline", "Margin", "Inferred"]], use_container_width=True)
+            matchup_view = matchup_df[["Week/Date", "Scoreline", "Margin", "Inferred"]].copy()
+            if highlight_estimated_games:
+                matchup_view["Badge"] = matchup_view["Inferred"].map(lambda x: "🧩" if x else "")
+            st.dataframe(matchup_view, use_container_width=True)
         st.write(f"{opp} Ranks: Win% #{win_ord.index(opp)+1 if opp in win_ord else '-'} (SOS {sos[opp]:.3f}), "
                  f"Pyth #{py_ord.index(opp)+1 if opp in py_ord else '-'} (SOS {sos[opp]:.3f}), "
                  f"AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'} (SOS {sos[opp]:.3f}), "
@@ -1737,7 +1752,7 @@ def main():
                              'SOS':[f"{sos[t]:.3f}" for t in win_ord],
                              'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in win_ord]})
         df_win["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in win_ord]
-        st.dataframe(df_win)
+        st.dataframe(add_imputation_markers(df_win, include_estimated_scores, highlight_estimated_games))
         st.caption("Why this rank")
         st.dataframe(build_why_rank_rows(win_ord, {t: stats[t]["win_pct"] for t in win_ord}, stats, h2h, sos, team_imputation))
         chart_data=pd.DataFrame({'Team':win_ord,'Win %':[stats[t]['win_pct'] for t in win_ord]})
@@ -1751,7 +1766,7 @@ def main():
                             'SOS':[f"{sos[t]:.3f}" for t in py_ord],
                             'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in py_ord]})
         df_py["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in py_ord]
-        st.dataframe(df_py)
+        st.dataframe(add_imputation_markers(df_py, include_estimated_scores, highlight_estimated_games))
         st.caption("Why this rank")
         st.dataframe(build_why_rank_rows(py_ord, py, stats, h2h, sos, team_imputation))
         chart_data=pd.DataFrame({'Team':py_ord,'Pythag':[py[t] for t in py_ord]})
@@ -1765,7 +1780,7 @@ def main():
                              'SOS':[f"{sos[t]:.3f}" for t in adj_ord],
                              'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in adj_ord]})
         df_adj["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in adj_ord]
-        st.dataframe(df_adj)
+        st.dataframe(add_imputation_markers(df_adj, include_estimated_scores, highlight_estimated_games))
         st.caption("Why this rank")
         st.dataframe(build_why_rank_rows(adj_ord, adj_vals, stats, h2h, sos, team_imputation))
         # Bar chart of adjusted Pyth
@@ -1788,7 +1803,7 @@ def main():
                              'Elo':[f"{elo[t]:.1f}" for t in elo_ord],
                              'SOS':[f"{sos[t]:.3f}" for t in elo_ord]})
         df_elo["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in elo_ord]
-        st.dataframe(df_elo)
+        st.dataframe(add_imputation_markers(df_elo, include_estimated_scores, highlight_estimated_games))
         st.caption("Why this rank")
         st.dataframe(build_why_rank_rows(elo_ord, elo, stats, h2h, sos, team_imputation))
         chart_data=pd.DataFrame({'Team':elo_ord,'Elo':[elo[t] for t in elo_ord]})
@@ -1811,6 +1826,23 @@ def main():
             "Unique Opponents", "Unique Opponent Ratio", "Breadth Raw Score"
         ]])
         if is_deep_dive:
+            st.markdown("### Rank outcome comparison (with vs without estimated scores)")
+            non_imputed_games = games_inferred[~games_inferred["is_imputed"]].copy()
+            if not non_imputed_games.empty:
+                stats_no_imp, h2h_no_imp = compute_stats(non_imputed_games)
+                win_no_imp = rank_win_pct(stats_no_imp, h2h_no_imp)
+                rank_with = {t:i+1 for i,t in enumerate(win_ord)}
+                rank_without = {t:i+1 for i,t in enumerate(win_no_imp)}
+                compare_rows = []
+                for t in sorted(set(rank_with).union(rank_without)):
+                    rw = rank_with.get(t)
+                    rn = rank_without.get(t)
+                    compare_rows.append({"Team": t, "With estimated": rw, "Without estimated": rn, "Δ rank (without-with)": (None if rw is None or rn is None else rn-rw), "is_imputed": team_imputation[t]["imputed"]>0})
+                compare_df = pd.DataFrame(compare_rows).sort_values(by=["Δ rank (without-with)", "With estimated"], ascending=[False, True], na_position="last")
+                st.dataframe(add_imputation_markers(compare_df, include_estimated_scores, highlight_estimated_games), use_container_width=True, hide_index=True)
+            else:
+                st.caption("No estimated games found to compare.")
+
             st.markdown("### Model comparison")
             st.caption("Disagreement diagnostic: look for teams with large spread where model assumptions diverge.")
             sort_mode = st.radio(
