@@ -459,6 +459,9 @@ SECTIONAL_SCORE_PARAMS = {
     "reliability_floor": 0.35,
     "reliability_ceiling": 0.95,
     "reliability_shrink_k": 6.0,
+    "global_prior_min_weight": 0.10,
+    "global_prior_max_weight": 0.25,
+    "global_prior_shrink_k": 4.0,
 }
 
 def build_team_opponent_vectors(team, matchup_agg):
@@ -547,7 +550,7 @@ def compute_shared_opponent_score(team, valid_teams, team_vectors, stats, p):
 
     return observed_score, total_games, detail_rows
 
-def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, matchup_agg, params=None):
+def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, matchup_agg, global_prior_scores=None, params=None):
     p = {**SECTIONAL_SCORE_PARAMS, **(params or {})}
     valid_teams = [t for t in sectional if t in stats]
     if team not in stats:
@@ -619,7 +622,15 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
 
     common_wins_weighted = common_win_pct * common_games
     win_pct = stats[team]["win_pct"]
-    raw_score = ((h2h_score * p["h2h_weight"]) + (common_win_pct * p["common_weight"]) + (win_pct * p["win_pct_weight"]))
+    global_prior_score = (global_prior_scores or {}).get(team, win_pct)
+    prior_sample_reliability = sectional_games / (sectional_games + max(float(p.get("global_prior_shrink_k", 4.0)), 1e-6))
+    prior_min_weight = float(p.get("global_prior_min_weight", 0.10))
+    prior_max_weight = float(p.get("global_prior_max_weight", 0.25))
+    prior_min_weight = min(max(prior_min_weight, 0.0), 1.0)
+    prior_max_weight = min(max(prior_max_weight, prior_min_weight), 1.0)
+    effective_prior_weight = prior_min_weight + ((prior_max_weight - prior_min_weight) * (1 - prior_sample_reliability))
+    local_weight = 1 - effective_prior_weight
+    raw_score = local_weight * ((h2h_score * p["h2h_weight"]) + (common_win_pct * p["common_weight"]) + (win_pct * p["win_pct_weight"])) + (effective_prior_weight * global_prior_score)
     fallback_score = win_pct
 
     penalty_reliability = game_penalty * sectional_penalty
@@ -639,13 +650,14 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
     return {
         "team": team, "sectional": list(sectional), "valid_teams": valid_teams,
         "h2h_score": h2h_score, "common_opponent_score": common_win_pct, "win_pct": win_pct,
+        "global_prior_score": global_prior_score, "global_prior_weight": effective_prior_weight,
         "combined_score": combined_score, "common_wins_weighted": common_wins_weighted, "common_games": common_games,
         "reliability": reliability, "raw_score": raw_score, "fallback_score": fallback_score,
         "penalties": {"game_penalty": game_penalty, "sectional_penalty": sectional_penalty},
         "h2h_details": h2h_details, "non_sectional_common_details": non_sectional_details, "sectional_common_details": sectional_details,
     }
 
-def compute_sectional_rankings(stats, h2h, games_inferred, sos, matchup_agg, sectional_params=None):
+def compute_sectional_rankings(stats, h2h, games_inferred, sos, matchup_agg, global_prior_scores=None, sectional_params=None):
     sectionals = {
         "Hoffman Estates (H.S.)": ["Hersey", "Barrington", "Elk Grove", "Conant", "Hoffman Estates", "McHenry", "Fremd", "Palatine", "Meadows", "Schaumburg"],
         "Chicago (Lane)": ["Amundsen", "De La Salle", "Jones-Payton", "Juarez", "Lane", "Latin", "Senn", "St Ignatius", "Whitney Young"],
@@ -660,7 +672,7 @@ def compute_sectional_rankings(stats, h2h, games_inferred, sos, matchup_agg, sec
     sectional_breakdowns = {}
     def rank_teams_in_sectional(teams, sectional_name):
         team_breakdowns = {
-            team: compute_sectional_team_breakdown(team, teams, stats, h2h, games_inferred, sos, matchup_agg, params=sectional_params)
+            team: compute_sectional_team_breakdown(team, teams, stats, h2h, games_inferred, sos, matchup_agg, global_prior_scores=global_prior_scores, params=sectional_params)
             for team in teams
         }
         for team, breakdown in team_breakdowns.items():
@@ -769,6 +781,7 @@ def compute_rank_tie_break_key(team, stats, sos, h2h):
 
 def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation):
     model_pct = {name: rank_percentile_map(order) for name, order in orders.items()}
+    rank_lookup = {name: {t: i + 1 for i, t in enumerate(order)} for name, order in orders.items()}
     rows = []
     for team in teams:
         _, confidence, games_ratio, coverage_ratio, imp_ratio = build_confidence_badge(team, stats, h2h, team_imputation, teams)
@@ -782,7 +795,12 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation):
         weighted_sum = sum(weights[m] * model_pct[m].get(team, 0.0) for m in weights)
         total_weight = sum(weights.values())
         calibrated_score = weighted_sum / total_weight if total_weight else 0.0
-        ordinal_ranks = [orders["Win"].index(team) + 1, orders["Pyth"].index(team) + 1, orders["AdjPyth"].index(team) + 1, orders["Elo"].index(team) + 1]
+        ordinal_ranks = [
+            rank_lookup["Win"].get(team, len(orders["Win"]) + 1),
+            rank_lookup["Pyth"].get(team, len(orders["Pyth"]) + 1),
+            rank_lookup["AdjPyth"].get(team, len(orders["AdjPyth"]) + 1),
+            rank_lookup["Elo"].get(team, len(orders["Elo"]) + 1),
+        ]
         rows.append({
             "Team": team,
             "Calibrated Score": calibrated_score,
@@ -882,6 +900,10 @@ def main():
         reliability_floor = st.slider("Reliability Floor", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_floor"]), step=0.05, disabled=not enable_overrides)
         reliability_ceiling = st.slider("Reliability Ceiling", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_ceiling"]), step=0.05, disabled=not enable_overrides)
         reliability_shrink_k = st.slider("Reliability Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["reliability_shrink_k"]), step=0.5, disabled=not enable_overrides)
+        st.markdown("**Global Prior Blend**")
+        global_prior_min_weight = st.slider("Global Prior Min Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_min_weight"]), step=0.01, disabled=not enable_overrides)
+        global_prior_max_weight = st.slider("Global Prior Max Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_max_weight"]), step=0.01, disabled=not enable_overrides)
+        global_prior_shrink_k = st.slider("Global Prior Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["global_prior_shrink_k"]), step=0.5, disabled=not enable_overrides)
 
     active_sectional_params = {
         **sectional_cfg,
@@ -897,6 +919,9 @@ def main():
         "reliability_floor": reliability_floor,
         "reliability_ceiling": reliability_ceiling,
         "reliability_shrink_k": reliability_shrink_k,
+        "global_prior_min_weight": min(global_prior_min_weight, global_prior_max_weight),
+        "global_prior_max_weight": max(global_prior_min_weight, global_prior_max_weight),
+        "global_prior_shrink_k": global_prior_shrink_k,
     } if enable_overrides else sectional_cfg
 
     active_config = {
@@ -945,9 +970,6 @@ def main():
     elo = compute_elo(games_inferred, initial=elo_cfg["initial"], k=elo_k)
     matchup_agg = build_matchup_aggregate(games_inferred)
     
-    # Compute sectional rankings
-    sectional_rankings, sectional_order, sectional_breakdowns = compute_sectional_rankings(stats, h2h, games_inferred, sos, matchup_agg, sectional_params=active_sectional_params)
-    
     # Orders & filters
     win_ord = rank_win_pct(stats,h2h)
     py_ord = rank_pythag(stats,py)
@@ -959,6 +981,15 @@ def main():
     adj_ord = [t for t in adj_ord if stats[t]['games']>=thr]
     elo_ord = [t for t in elo_ord if stats[t]['games']>=thr]
     teams    = sorted(stats.keys())
+    model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
+    global_prior_teams = [t for t in teams if t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
+    global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation)
+    global_prior_scores = dict(zip(global_prior_df["Team"], global_prior_df["Calibrated Score"]))
+
+    # Compute sectional rankings
+    sectional_rankings, sectional_order, sectional_breakdowns = compute_sectional_rankings(
+        stats, h2h, games_inferred, sos, matchup_agg, global_prior_scores=global_prior_scores, sectional_params=active_sectional_params
+    )
     
     # Team profile selection
     st.sidebar.header("Team Profile")
@@ -1108,7 +1139,6 @@ def main():
     with tabs[5]:
         st.subheader("Rankings by Calibrated Ensemble")
         eligible_teams = [t for t in teams if stats[t]['games'] >= thr and t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
-        model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
         df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation)
         st.dataframe(df_avg[[
             "Rank", "Team", "Calibrated Score", "Ordinal Avg (Debug)", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"

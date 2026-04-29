@@ -29,6 +29,9 @@
     "goal_diff_factor_scale": 0.05,
     "reliability_floor": 0.35,
     "reliability_ceiling": 0.95,
-    "reliability_shrink_k": 6.0
+    "reliability_shrink_k": 6.0,
+    "global_prior_min_weight": 0.1,
+    "global_prior_max_weight": 0.25,
+    "global_prior_shrink_k": 4.0
   }
 }
