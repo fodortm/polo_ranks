@@ -209,6 +209,123 @@ def rank_elo(stats,elo):
     return sorted(stats.keys(),key=lambda t:elo[t],reverse=True)
 
 # ---------------- Sectional Rankings ---------------- #
+SECTIONAL_SCORE_PARAMS = {
+    "game_penalty_threshold": 0.8,
+    "game_penalty_power": 2.0,
+    "zero_sectional_penalty": 0.85,
+    "sectional_penalty_threshold": 0.7,
+    "h2h_weight": 0.45,
+    "common_weight": 0.45,
+    "win_pct_weight": 0.10,
+    "sos_center": 0.5,
+    "sos_scale": 2.0,
+    "sectional_sos_boost": 1.1,
+    "base_common_weight": 0.7,
+    "common_weight_scale": 0.6,
+    "goal_diff_factor_scale": 0.05,
+}
+
+def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, params=None):
+    p = {**SECTIONAL_SCORE_PARAMS, **(params or {})}
+    valid_teams = [t for t in sectional if t in stats]
+    if team not in stats:
+        return {
+            "team": team, "sectional": list(sectional), "valid_teams": valid_teams,
+            "h2h_score": 0.0, "common_opponent_score": 0.0, "win_pct": 0.0, "combined_score": float("-inf"),
+            "penalties": {"game_penalty": 1.0, "sectional_penalty": 1.0},
+            "h2h_details": [], "non_sectional_common_details": [], "sectional_common_details": []
+        }
+
+    avg_games = (sum(stats[t]["games"] for t in valid_teams) / len(valid_teams)) if valid_teams else 0
+    team_games = stats[team]["games"]
+    game_penalty = 1.0
+    if avg_games > 0 and team_games < avg_games * p["game_penalty_threshold"]:
+        game_penalty = (team_games / avg_games) ** p["game_penalty_power"]
+
+    sectional_games = sum(1 for opp in valid_teams if opp != team and h2h.get((team, opp), {"games": 0})["games"] > 0)
+    avg_sectional_games = (sum(1 for t in valid_teams for opp in valid_teams if t != opp and h2h.get((t, opp), {"games": 0})["games"] > 0) / len(valid_teams)) if valid_teams else 0
+    sectional_penalty = 1.0
+    if sectional_games == 0:
+        sectional_penalty = p["zero_sectional_penalty"]
+    elif avg_sectional_games > 0 and sectional_games < avg_sectional_games * p["sectional_penalty_threshold"]:
+        sectional_penalty = p["zero_sectional_penalty"] + ((1 - p["zero_sectional_penalty"]) * (sectional_games / (avg_sectional_games * p["sectional_penalty_threshold"])))
+
+    all_opp_win_pcts = [stats[opp]["win_pct"] for opp in stats if opp != team]
+    avg_opp_win_pct = sum(all_opp_win_pcts) / len(all_opp_win_pcts) if all_opp_win_pcts else 0.5
+
+    h2h_scores, h2h_details = [], []
+    for opp in valid_teams:
+        if opp == team:
+            continue
+        r = h2h.get((team, opp), {"wins": 0, "games": 0, "gf": 0, "ga": 0})
+        if r["games"] <= 0:
+            h2h_scores.append(0.0)
+            continue
+        opp_strength, opp_sos = stats[opp]["win_pct"], sos[opp]
+        sos_multiplier = 1.0 + ((opp_sos - p["sos_center"]) * p["sos_scale"])
+        sos_multiplier *= p["sectional_sos_boost"]
+        adjusted_strength = opp_strength * sos_multiplier
+        win_pct = r["wins"] / r["games"]
+        goal_diff_factor = 1.0
+        if r["wins"] > 0 and r["games"] - r["wins"] > 0:
+            goal_diff_factor = 1.0 + ((r.get("gf", 0) - r.get("ga", 0)) * p["goal_diff_factor_scale"])
+        weighted_score = win_pct * (adjusted_strength / avg_opp_win_pct) * goal_diff_factor
+        h2h_scores.append(weighted_score)
+        h2h_details.append({"Opponent": opp, "Record": f"{r['wins']}-{r['games']-r['wins']}", "Win %": win_pct, "Opp Win %": opp_strength, "Opp SOS": opp_sos, "SOS Mult": sos_multiplier, "Adj Strength": adjusted_strength, "GD Factor": goal_diff_factor, "Weighted Score": weighted_score})
+    h2h_score = (sum(h2h_scores) / len(h2h_scores)) if h2h_scores else 0.0
+
+    common_opps = set()
+    for opp in valid_teams:
+        common_opps.update(stats[opp]["opponents"])
+    sectional_opps = set(valid_teams)
+    non_sectional_opps = common_opps - sectional_opps
+
+    common_wins_weighted = 0.0
+    common_games = 0
+    non_sectional_details, sectional_details = [], []
+    for opp in non_sectional_opps:
+        if opp not in stats:
+            continue
+        wins = sum(1 for r in games.itertuples() if (r.team1 == team and r.team2 == opp and r.score1 > r.score2) or (r.team2 == team and r.team1 == opp and r.score2 > r.score1))
+        losses = sum(1 for r in games.itertuples() if (r.team1 == team and r.team2 == opp and r.score1 < r.score2) or (r.team2 == team and r.team1 == opp and r.score2 < r.score1))
+        if wins + losses == 0:
+            continue
+        opp_strength, opp_sos = stats[opp]["win_pct"], sos[opp]
+        sos_multiplier = 1.0 + ((opp_sos - p["sos_center"]) * p["sos_scale"])
+        adjusted_strength = opp_strength * sos_multiplier
+        weight = p["base_common_weight"] + (p["common_weight_scale"] * (adjusted_strength / avg_opp_win_pct))
+        weighted_wins = wins * weight
+        common_wins_weighted += weighted_wins
+        common_games += (wins + losses)
+        non_sectional_details.append({"Opponent": opp, "Record": f"{wins}-{losses}", "Opp Win %": opp_strength, "Opp SOS": opp_sos, "SOS Mult": sos_multiplier, "Adj Strength": adjusted_strength, "Weight": weight, "Weighted Wins": weighted_wins})
+
+    for opp in sectional_opps:
+        if opp == team or opp not in stats:
+            continue
+        r = h2h.get((team, opp), {"wins": 0, "games": 0, "gf": 0, "ga": 0})
+        if r["games"] <= 0:
+            continue
+        opp_strength, opp_sos = stats[opp]["win_pct"], sos[opp]
+        sos_multiplier = (1.0 + ((opp_sos - p["sos_center"]) * p["sos_scale"])) * p["sectional_sos_boost"]
+        adjusted_strength = opp_strength * sos_multiplier
+        weight = p["base_common_weight"] + (p["common_weight_scale"] * (adjusted_strength / avg_opp_win_pct))
+        weighted_wins = r["wins"] * weight
+        common_wins_weighted += weighted_wins
+        common_games += r["games"]
+        sectional_details.append({"Opponent": opp, "Record": f"{r['wins']}-{r['games']-r['wins']}", "Win %": (r["wins"] / r["games"]), "Opp Win %": opp_strength, "Opp SOS": opp_sos, "SOS Mult": sos_multiplier, "Adj Strength": adjusted_strength, "Weight": weight, "Weighted Score": ((r["wins"] / r["games"]) * weight)})
+
+    common_win_pct = (common_wins_weighted / common_games) if common_games > 0 else 0.0
+    win_pct = stats[team]["win_pct"]
+    combined_score = ((h2h_score * p["h2h_weight"]) + (common_win_pct * p["common_weight"]) + (win_pct * p["win_pct_weight"])) * game_penalty * sectional_penalty
+
+    return {
+        "team": team, "sectional": list(sectional), "valid_teams": valid_teams,
+        "h2h_score": h2h_score, "common_opponent_score": common_win_pct, "win_pct": win_pct,
+        "combined_score": combined_score, "common_wins_weighted": common_wins_weighted, "common_games": common_games,
+        "penalties": {"game_penalty": game_penalty, "sectional_penalty": sectional_penalty},
+        "h2h_details": h2h_details, "non_sectional_common_details": non_sectional_details, "sectional_common_details": sectional_details,
+    }
+
 def compute_sectional_rankings(stats, h2h, games_inferred, sos):
     sectionals = {
         "Barrington": ["Hersey", "Barrington", "Elk Grove", "Conant", "Hoffman Estates", "McHenry", "Fremd", "Palatine", "Meadows", "Schaumburg"],
@@ -220,188 +337,17 @@ def compute_sectional_rankings(stats, h2h, games_inferred, sos):
         "New Lenox (LWW)": ["Bradley", "Chicago Ag", "Brooks", "H-F", "LWE", "Bremen", "LWC", "LWW", "Andrew"]
     }
     
+    sectional_breakdowns = {}
     def rank_teams_in_sectional(teams, sectional_name):
-        # First, create a matrix of head-to-head results
-        h2h_matrix = {}
-        for team1 in teams:
-            if team1 not in stats:
-                continue
-            h2h_matrix[team1] = {}
-            for team2 in teams:
-                if team2 not in stats or team1 == team2:
-                    continue
-                h2h_record = h2h.get((team1, team2), {'wins': 0, 'games': 0, 'gf': 0, 'ga': 0})
-                h2h_matrix_entry = {
-                    'wins': h2h_record['wins'],
-                    'games': h2h_record['games'],
-                    'win_pct': h2h_record['wins'] / h2h_record['games'] if h2h_record['games'] > 0 else 0
-                }
-                h2h_matrix[team1][team2] = h2h_matrix_entry
-        
-        def get_team_score(team):
-            if team not in stats:
-                return float('-inf')
-            
-            # Calculate average games played in sectional
-            valid_teams = [t for t in teams if t in stats]
-            if not valid_teams:
-                return 0
-            avg_games = sum(stats[t]['games'] for t in valid_teams) / len(valid_teams)
-            team_games = stats[team]['games']
-            
-            # Apply game count penalty if significantly below average
-            game_penalty = 1.0
-            if team_games < avg_games * 0.8:  # Adjusted threshold to 80% of average
-                game_penalty = (team_games / avg_games) ** 2  # More severe penalty (increased exponent)
-            
-            # Get all opponents' win percentages and SOS for strength calculation
-            all_opp_win_pcts = [stats[opp]['win_pct'] for opp in stats if opp != team]
-            avg_opp_win_pct = sum(all_opp_win_pcts) / len(all_opp_win_pcts) if all_opp_win_pcts else 0.5
-            
-            # Calculate sectional games adjustment
-            sectional_games = sum(1 for opp in valid_teams if opp != team and h2h.get((team, opp), {'games': 0})['games'] > 0)
-            avg_sectional_games = sum(1 for t in valid_teams for opp in valid_teams 
-                                   if t != opp and h2h.get((t, opp), {'games': 0})['games'] > 0) / len(valid_teams)
-            
-            # Middle ground approach for sectional penalty
-            sectional_penalty = 1.0
-            if sectional_games == 0:
-                # If no sectional games, use a moderate penalty
-                sectional_penalty = 0.85  # 15% penalty
-            elif sectional_games < avg_sectional_games * 0.7:
-                # Moderate penalty for teams with some sectional games
-                sectional_penalty = 0.85 + (0.15 * (sectional_games / (avg_sectional_games * 0.7)))
-            
-            # Calculate head-to-head matrix for this team
-            h2h_scores = []
-            for opp in valid_teams:
-                if opp == team:
-                    continue
-                h2h_record = h2h.get((team, opp), {'wins': 0, 'games': 0, 'gf': 0, 'ga': 0})
-                if h2h_record['games'] > 0:
-                    opp_strength = stats[opp]['win_pct']
-                    opp_sos = sos[opp]
-                    # Adjusted SOS multiplier formula to penalize weak SOS and reward strong SOS
-                    sos_multiplier = 1.0 + ((opp_sos - 0.5) * 2.0)  # 0.8 to 1.2 range for typical SOS
-                    if opp in valid_teams:  # If opponent is in same sectional
-                        sos_multiplier *= 1.1  # Boost multiplier for sectional opponents
-                    adjusted_strength = opp_strength * sos_multiplier
-                    
-                    # Calculate win percentage
-                    win_pct = h2h_record['wins'] / h2h_record['games'] if h2h_record['games'] > 0 else 0
-                    
-                    # Apply GD factor to H2H score
-                    goal_diff_factor = 1.0
-                    if h2h_record['wins'] > 0 and h2h_record['games'] - h2h_record['wins'] > 0:
-                        total_gf = h2h_record.get('gf', 0)
-                        total_ga = h2h_record.get('ga', 0)
-                        goal_diff_factor = 1.0 + ((total_gf - total_ga) * 0.05)  # Each goal difference adds 5% to the score
-                    
-                    h2h_scores.append(win_pct * (adjusted_strength / avg_opp_win_pct) * goal_diff_factor)
-                else:
-                    h2h_scores.append(0)  # No games played against this opponent
-            
-            h2h_score = sum(h2h_scores) / len(h2h_scores) if h2h_scores else 0
-            
-            # Common opponents record
-            common_opps = set()
-            for opp in valid_teams:
-                common_opps.update(stats[opp]['opponents'])
-            
-            # Separate common opponents into sectional and non-sectional
-            sectional_opps = set(valid_teams)
-            non_sectional_opps = common_opps - sectional_opps
-            
-            # Initialize weighted wins and games counters
-            common_wins_weighted = 0
-            common_games = 0
-            
-            # Process non-sectional opponents
-            non_sectional_details = []
-            for opp in non_sectional_opps:
-                if opp in stats:
-                    wins = sum(1 for r in games_inferred.itertuples() 
-                             if (r.team1==team and r.team2==opp and r.score1>r.score2) 
-                             or (r.team2==team and r.team1==opp and r.score2>r.score1))
-                    losses = sum(1 for r in games_inferred.itertuples() 
-                               if (r.team1==team and r.team2==opp and r.score1<r.score2) 
-                               or (r.team2==team and r.team1==opp and r.score2<r.score1))
-                    if wins + losses > 0:
-                        opp_strength = stats[opp]['win_pct']
-                        opp_sos = sos[opp]
-                        # Adjusted SOS multiplier formula
-                        sos_multiplier = 1.0 + ((opp_sos - 0.5) * 2.0)  # 0.8 to 1.2 range
-                        adjusted_strength = opp_strength * sos_multiplier
-                        # New weight system based on adjusted strength relative to average
-                        weight = 0.7 + (0.6 * (adjusted_strength / avg_opp_win_pct))
-                        weighted_wins = wins * weight
-                        common_wins_weighted += weighted_wins
-                        common_games += wins + losses
-                        non_sectional_details.append({
-                            'Opponent': opp,
-                            'Record': f"{wins}-{losses}",
-                            'Opp Win %': f"{opp_strength:.3f}",
-                            'Opp SOS': f"{opp_sos:.3f}",
-                            'SOS Mult': f"{sos_multiplier:.2f}x",
-                            'Adj Strength': f"{adjusted_strength:.3f}",
-                            'Weight': f"{weight:.1f}x",
-                            'Weighted Wins': f"{weighted_wins:.1f}"
-                        })
-            
-            # Process sectional opponents
-            sectional_details = []
-            for opp in sectional_opps:
-                if opp != team and opp in stats:
-                    h2h_record = h2h.get((team, opp), {'wins': 0, 'games': 0, 'gf': 0, 'ga': 0})
-                    if h2h_record['games'] > 0:
-                        opp_strength = stats[opp]['win_pct']
-                        opp_sos = sos[opp]
-                        # Adjusted SOS multiplier formula with sectional boost
-                        sos_multiplier = 1.0 + ((opp_sos - 0.5) * 2.0)  # 0.8 to 1.2 range
-                        sos_multiplier *= 1.1  # Boost multiplier for sectional opponents
-                        adjusted_strength = opp_strength * sos_multiplier
-                        
-                        # Calculate win percentage
-                        win_pct = h2h_record['wins'] / h2h_record['games'] if h2h_record['games'] > 0 else 0
-                        
-                        weight = 0.7 + (0.6 * (adjusted_strength / avg_opp_win_pct))
-                        weighted_wins = h2h_record['wins'] * weight
-                        common_wins_weighted += weighted_wins
-                        common_games += h2h_record['games']
-                        sectional_details.append({
-                            'Opponent': opp,
-                            'Record': f"{h2h_record['wins']}-{h2h_record['games']-h2h_record['wins']}",
-                            'Win %': f"{h2h_record['wins']/h2h_record['games']:.3f}" if h2h_record['games'] > 0 else "0.000",
-                            'Opp Win %': f"{opp_strength:.3f}",
-                            'Opp SOS': f"{opp_sos:.3f}",
-                            'SOS Mult': f"{sos_multiplier:.2f}x",
-                            'Adj Strength': f"{adjusted_strength:.3f}",
-                            'Weight': f"{weight:.1f}x",
-                            'Weighted Score': f"{h2h_record['wins']/h2h_record['games'] * weight:.3f}" if h2h_record['games'] > 0 else "0.000"
-                        })
-            
-            common_win_pct = common_wins_weighted / common_games if common_games > 0 else 0
-            
-            # Overall win percentage (reduced weight)
-            win_pct = stats[team]['win_pct']
-            
-            # Calculate combined score with adjusted weights and sectional penalty
-            # H2H: 45%, Common Opp: 45%, Win %: 10%
-            combined_score = (h2h_score * 0.45 + 
-                            common_win_pct * 0.45 + 
-                            win_pct * 0.1) * game_penalty * sectional_penalty
-            
-            # Store the score in the team's stats for reference
-            if 'sectional_score' not in stats[team]:
-                stats[team]['sectional_score'] = {}
-            stats[team]['sectional_score'][sectional_name] = combined_score
-            
-            return combined_score
-        
-        # First get initial rankings by score
-        initial_rankings = sorted(teams, key=get_team_score, reverse=True)
-        
-        return initial_rankings
+        team_breakdowns = {
+            team: compute_sectional_team_breakdown(team, teams, stats, h2h, games_inferred, sos)
+            for team in teams
+        }
+        for team, breakdown in team_breakdowns.items():
+            if team in stats:
+                stats[team].setdefault("sectional_score", {})[sectional_name] = breakdown["combined_score"]
+        sectional_breakdowns[sectional_name] = team_breakdowns
+        return sorted(teams, key=lambda t: team_breakdowns[t]["combined_score"], reverse=True)
     
     # Rank teams in each sectional
     sectional_rankings = {name: rank_teams_in_sectional(teams, name) for name, teams in sectionals.items()}
@@ -416,7 +362,7 @@ def compute_sectional_rankings(stats, h2h, games_inferred, sos):
     sectional_strengths = {name: get_sectional_strength(teams) for name, teams in sectionals.items()}
     sectional_order = sorted(sectional_strengths.keys(), key=lambda x: sectional_strengths[x], reverse=True)
     
-    return sectional_rankings, sectional_order
+    return sectional_rankings, sectional_order, sectional_breakdowns
 
 # ---------------- App ---------------- #
 
@@ -455,7 +401,7 @@ def main():
     elo = compute_elo(games_inferred)
     
     # Compute sectional rankings
-    sectional_rankings, sectional_order = compute_sectional_rankings(stats, h2h, games_inferred, sos)
+    sectional_rankings, sectional_order, sectional_breakdowns = compute_sectional_rankings(stats, h2h, games_inferred, sos)
     
     # Orders & filters
     win_ord = rank_win_pct(stats,h2h)
@@ -659,148 +605,14 @@ def main():
                     continue
                     
                 with st.expander(f"{team} - Detailed Seeding Analysis"):
-                    # Calculate average games played in sectional
-                    valid_teams = [t for t in teams if t in stats]
-                    if not valid_teams:
-                        st.write("No valid teams in sectional")
-                        st.stop()
-                        
-                    avg_games = sum(stats[t]['games'] for t in valid_teams) / len(valid_teams)
-                    team_games = stats[team]['games']
-                    game_penalty = 1.0
-                    if team_games < avg_games * 0.6:  # Adjusted threshold to 60% of average
-                        game_penalty = (team_games / avg_games) ** 2  # More severe penalty (increased exponent)
-                    
-                    # Get all opponents' win percentages and SOS for strength calculation
-                    all_opp_win_pcts = [stats[opp]['win_pct'] for opp in stats if opp != team]
-                    avg_opp_win_pct = sum(all_opp_win_pcts) / len(all_opp_win_pcts) if all_opp_win_pcts else 0.5
-                    
-                    # Calculate sectional games adjustment
-                    sectional_games = sum(1 for opp in valid_teams if opp != team and h2h.get((team, opp), {'games': 0})['games'] > 0)
-                    avg_sectional_games = sum(1 for t in valid_teams for opp in valid_teams 
-                                           if t != opp and h2h.get((t, opp), {'games': 0})['games'] > 0) / len(valid_teams)
-                    
-                    # Middle ground approach for sectional penalty
-                    sectional_penalty = 1.0
-                    if sectional_games == 0:
-                        # If no sectional games, use a moderate penalty
-                        sectional_penalty = 0.85  # 15% penalty
-                    elif sectional_games < avg_sectional_games * 0.7:
-                        # Moderate penalty for teams with some sectional games
-                        sectional_penalty = 0.85 + (0.15 * (sectional_games / (avg_sectional_games * 0.7)))
-                    
-                    # Calculate head-to-head matrix for this team
-                    h2h_scores = []
-                    for opp in valid_teams:
-                        if opp == team:
-                            continue
-                        h2h_record = h2h.get((team, opp), {'wins': 0, 'games': 0, 'gf': 0, 'ga': 0})
-                        if h2h_record['games'] > 0:
-                            opp_strength = stats[opp]['win_pct']
-                            opp_sos = sos[opp]
-                            # Adjusted SOS multiplier formula to penalize weak SOS and reward strong SOS
-                            sos_multiplier = 1.0 + ((opp_sos - 0.5) * 2.0)  # 0.8 to 1.2 range for typical SOS
-                            if opp in valid_teams:  # If opponent is in same sectional
-                                sos_multiplier *= 1.1  # Boost multiplier for sectional opponents
-                            adjusted_strength = opp_strength * sos_multiplier
-                            
-                            # Calculate win percentage
-                            win_pct = h2h_record['wins'] / h2h_record['games'] if h2h_record['games'] > 0 else 0
-                            
-                            # Apply GD factor to H2H score
-                            goal_diff_factor = 1.0
-                            if h2h_record['wins'] > 0 and h2h_record['games'] - h2h_record['wins'] > 0:
-                                total_gf = h2h_record.get('gf', 0)
-                                total_ga = h2h_record.get('ga', 0)
-                                goal_diff_factor = 1.0 + ((total_gf - total_ga) * 0.05)  # Each goal difference adds 5% to the score
-                            
-                            h2h_scores.append(win_pct * (adjusted_strength / avg_opp_win_pct) * goal_diff_factor)
-                        else:
-                            h2h_scores.append(0)  # No games played against this opponent
-                    
-                    h2h_score = sum(h2h_scores) / len(h2h_scores) if h2h_scores else 0
-                    
-                    # Common opponents record
-                    common_opps = set()
-                    for opp in valid_teams:
-                        common_opps.update(stats[opp]['opponents'])
-                    
-                    # Separate common opponents into sectional and non-sectional
-                    sectional_opps = set(valid_teams)
-                    non_sectional_opps = common_opps - sectional_opps
-                    
-                    # Initialize weighted wins and games counters
-                    common_wins_weighted = 0
-                    common_games = 0
-                    
-                    # Process non-sectional opponents
-                    non_sectional_details = []
-                    for opp in non_sectional_opps:
-                        if opp in stats:
-                            wins = sum(1 for r in games_inferred.itertuples() 
-                                     if (r.team1==team and r.team2==opp and r.score1>r.score2) 
-                                     or (r.team2==team and r.team1==opp and r.score2>r.score1))
-                            losses = sum(1 for r in games_inferred.itertuples() 
-                                       if (r.team1==team and r.team2==opp and r.score1<r.score2) 
-                                       or (r.team2==team and r.team1==opp and r.score2<r.score1))
-                            if wins + losses > 0:
-                                opp_strength = stats[opp]['win_pct']
-                                opp_sos = sos[opp]
-                                # Adjusted SOS multiplier formula
-                                sos_multiplier = 1.0 + ((opp_sos - 0.5) * 2.0)  # 0.8 to 1.2 range
-                                adjusted_strength = opp_strength * sos_multiplier
-                                # New weight system based on adjusted strength relative to average
-                                weight = 0.7 + (0.6 * (adjusted_strength / avg_opp_win_pct))
-                                weighted_wins = wins * weight
-                                common_wins_weighted += weighted_wins
-                                common_games += wins + losses
-                                non_sectional_details.append({
-                                    'Opponent': opp,
-                                    'Record': f"{wins}-{losses}",
-                                    'Opp Win %': f"{opp_strength:.3f}",
-                                    'Opp SOS': f"{opp_sos:.3f}",
-                                    'SOS Mult': f"{sos_multiplier:.2f}x",
-                                    'Adj Strength': f"{adjusted_strength:.3f}",
-                                    'Weight': f"{weight:.1f}x",
-                                    'Weighted Wins': f"{weighted_wins:.1f}"
-                                })
-                    
-                    # Process sectional opponents
-                    sectional_details = []
-                    for opp in sectional_opps:
-                        if opp != team and opp in stats:
-                            h2h_record = h2h.get((team, opp), {'wins': 0, 'games': 0, 'gf': 0, 'ga': 0})
-                            if h2h_record['games'] > 0:
-                                opp_strength = stats[opp]['win_pct']
-                                opp_sos = sos[opp]
-                                # Adjusted SOS multiplier formula with sectional boost
-                                sos_multiplier = 1.0 + ((opp_sos - 0.5) * 2.0)  # 0.8 to 1.2 range
-                                sos_multiplier *= 1.1  # Boost multiplier for sectional opponents
-                                adjusted_strength = opp_strength * sos_multiplier
-                                
-                                # Calculate win percentage
-                                win_pct = h2h_record['wins'] / h2h_record['games'] if h2h_record['games'] > 0 else 0
-                                
-                                weight = 0.7 + (0.6 * (adjusted_strength / avg_opp_win_pct))
-                                weighted_wins = h2h_record['wins'] * weight
-                                common_wins_weighted += weighted_wins
-                                common_games += h2h_record['games']
-                                sectional_details.append({
-                                    'Opponent': opp,
-                                    'Record': f"{h2h_record['wins']}-{h2h_record['games']-h2h_record['wins']}",
-                                    'Win %': f"{h2h_record['wins']/h2h_record['games']:.3f}" if h2h_record['games'] > 0 else "0.000",
-                                    'Opp Win %': f"{opp_strength:.3f}",
-                                    'Opp SOS': f"{opp_sos:.3f}",
-                                    'SOS Mult': f"{sos_multiplier:.2f}x",
-                                    'Adj Strength': f"{adjusted_strength:.3f}",
-                                    'Weight': f"{weight:.1f}x",
-                                    'Weighted Score': f"{h2h_record['wins']/h2h_record['games'] * weight:.3f}" if h2h_record['games'] > 0 else "0.000"
-                                })
-                    
-                    common_win_pct = common_wins_weighted / common_games if common_games > 0 else 0
-                    
-                    # Overall win percentage (reduced weight)
-                    win_pct = stats[team]['win_pct']
+                    breakdown = sectional_breakdowns[sectional][team]
+                    h2h_score = breakdown["h2h_score"]
+                    common_win_pct = breakdown["common_opponent_score"]
+                    common_wins_weighted = breakdown["common_wins_weighted"]
+                    common_games = breakdown["common_games"]
+                    win_pct = breakdown["win_pct"]
+                    game_penalty = breakdown["penalties"]["game_penalty"]
+                    sectional_penalty = breakdown["penalties"]["sectional_penalty"]
                     
                     # Display factors with updated weights
                     col1, col2, col3, col4 = st.columns(4)
@@ -819,63 +631,25 @@ def main():
                         st.metric("Penalties", "None" if not penalties else ", ".join(penalties))
                     
                     # Combined score
-                    combined_score = (h2h_score * 0.45 + 
-                                    common_win_pct * 0.45 + 
-                                    win_pct * 0.1) * game_penalty * sectional_penalty
-                    st.metric("Combined Score", f"{combined_score:.3f}")
+                    st.metric("Combined Score", f"{breakdown['combined_score']:.3f}")
                     
                     # Head-to-head details
                     st.markdown("##### Head-to-Head Details")
-                    h2h_details = []
-                    for opp in valid_teams:
-                        if opp != team and opp in stats:
-                            h2h_record = h2h.get((team, opp), {'wins': 0, 'games': 0, 'gf': 0, 'ga': 0})
-                            if h2h_record['games'] > 0:
-                                opp_strength = stats[opp]['win_pct']
-                                opp_sos = sos[opp]
-                                # More aggressive SOS adjustment
-                                sos_multiplier = 0.3 + (opp_sos * 1.7)  # 0.3 to 2.0 range
-                                adjusted_strength = opp_strength * sos_multiplier
-                                weight = (adjusted_strength / avg_opp_win_pct) if adjusted_strength > avg_opp_win_pct else 0.3
-                                
-                                # Calculate goal differential factor only for split series
-                                goal_diff_factor = 1.0
-                                if h2h_record['wins'] > 0 and h2h_record['games'] - h2h_record['wins'] > 0:
-                                    # Calculate total goals for and against in all games
-                                    total_gf = h2h_record.get('gf', 0)
-                                    total_ga = h2h_record.get('ga', 0)
-                                    # Apply a stronger goal differential factor for split series
-                                    goal_diff_factor = 1.0 + ((total_gf - total_ga) * 0.05)  # Each goal difference adds 5% to the score
-                                
-                                h2h_details.append({
-                                    'Opponent': opp,
-                                    'Record': f"{h2h_record['wins']}-{h2h_record['games']-h2h_record['wins']}",
-                                    'Win %': f"{h2h_record['wins']/h2h_record['games']:.3f}",
-                                    'Opp Win %': f"{opp_strength:.3f}",
-                                    'Opp SOS': f"{opp_sos:.3f}",
-                                    'SOS Mult': f"{sos_multiplier:.2f}x",
-                                    'Adj Strength': f"{adjusted_strength:.3f}",
-                                    'Weight': f"{weight:.1f}x",
-                                    'Total GF': f"{h2h_record.get('gf', 0)}",
-                                    'Total GA': f"{h2h_record.get('ga', 0)}",
-                                    'GD Factor': f"{goal_diff_factor:.2f}x",
-                                    'Weighted Score': f"{h2h_record['wins']/h2h_record['games'] * weight * goal_diff_factor:.3f}"
-                                })
-                    if h2h_details:
-                        st.dataframe(pd.DataFrame(h2h_details))
+                    if breakdown["h2h_details"]:
+                        st.dataframe(pd.DataFrame(breakdown["h2h_details"]))
                     else:
                         st.write("No head-to-head games played")
                     
                     # Common opponents details
                     st.markdown("##### Non-Sectional Common Opponents")
-                    if non_sectional_details:
-                        st.dataframe(pd.DataFrame(non_sectional_details))
+                    if breakdown["non_sectional_common_details"]:
+                        st.dataframe(pd.DataFrame(breakdown["non_sectional_common_details"]))
                     else:
                         st.write("No non-sectional common opponents")
                     
                     st.markdown("##### Sectional Common Opponents")
-                    if sectional_details:
-                        st.dataframe(pd.DataFrame(sectional_details))
+                    if breakdown["sectional_common_details"]:
+                        st.dataframe(pd.DataFrame(breakdown["sectional_common_details"]))
                     else:
                         st.write("No sectional common opponents")
 
