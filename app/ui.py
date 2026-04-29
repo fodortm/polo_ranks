@@ -1460,6 +1460,13 @@ def main():
                 default=[team for team in default_trend_teams if team in all_teams_sorted],
                 help="Default includes top 3–5 teams plus the selected profile team.",
             )
+            max_trend_teams = 8
+            if len(selected_trend_teams) > max_trend_teams:
+                st.warning(
+                    f"Showing only the first {max_trend_teams} selected teams for readability. "
+                    "Trim your selection to explore more teams."
+                )
+                selected_trend_teams = selected_trend_teams[:max_trend_teams]
 
             window_choice = st.radio("Last N weeks", options=["4", "All"], horizontal=True, index=0)
             max_week = int(weekly_ranks["week_num"].max())
@@ -1490,37 +1497,63 @@ def main():
 
             trend_df = trend_window.copy()
             trend_df["is_selected"] = trend_df["team"].isin(selected_trend_teams)
+            trend_df = trend_df[trend_df["is_selected"]].copy()
             trend_df["Movement"] = trend_df.groupby("team")["rank"].diff().fillna(0)
+            trend_df["Movement Label"] = trend_df["Movement"].map(
+                lambda v: (
+                    f"Up {abs(int(v))}"
+                    if v < 0
+                    else (f"Down {abs(int(v))}" if v > 0 else "No change")
+                )
+            )
             trend_df["MovementSemantics"] = trend_df["Movement"].apply(
                 lambda v: "positive" if v < 0 else ("negative" if v > 0 else "neutral")
             )
+            hover = alt.selection_point(
+                fields=["week_num", "team"],
+                nearest=True,
+                on="mouseover",
+                empty="none",
+                clear="mouseout",
+            )
+            team_hover = alt.selection_point(fields=["team"], on="mouseover", empty="all")
 
             line_layer = alt.Chart(trend_df).mark_line(strokeWidth=2).encode(
                 x=alt.X("week_num:Q", title="Week"),
                 y=alt.Y("rank:Q", title="Rank (1 is best)", scale=alt.Scale(reverse=True)),
                 color=alt.Color("team:N", legend=alt.Legend(title="Team")),
-                opacity=alt.condition(alt.datum.is_selected, alt.value(1.0), alt.value(0.18)),
+                opacity=alt.condition(team_hover, alt.value(1.0), alt.value(0.20)),
                 detail="team:N",
-                tooltip=[
-                    alt.Tooltip("week_label:N", title="Week"),
-                    alt.Tooltip("week_num:Q", title="Week #"),
-                    alt.Tooltip("team:N", title="Team"),
-                    alt.Tooltip("rank:Q", title="Rank"),
-                ],
             )
             point_layer = alt.Chart(trend_df).mark_circle(size=70).encode(
                 x=alt.X("week_num:Q"),
                 y=alt.Y("rank:Q"),
-                color=alt.Color(
+                color=alt.Color("team:N", legend=None),
+                shape=alt.Shape(
+                    "MovementSemantics:N",
+                    scale=alt.Scale(
+                        domain=["positive", "neutral", "negative"],
+                        range=["triangle-up", "circle", "triangle-down"],
+                    ),
+                    legend=alt.Legend(title="Week-over-week movement"),
+                ),
+                stroke=alt.Color(
                     "MovementSemantics:N",
                     scale=alt.Scale(
                         domain=["positive", "neutral", "negative"],
                         range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]],
                     ),
-                    legend=alt.Legend(title="Week-over-week movement"),
+                    legend=None,
                 ),
-                opacity=alt.condition(alt.datum.is_selected, alt.value(1.0), alt.value(0.18)),
+                strokeWidth=alt.value(1.5),
+                opacity=alt.condition(team_hover, alt.value(1.0), alt.value(0.20)),
                 detail="team:N",
+                tooltip=[
+                    alt.Tooltip("team:N", title="Team"),
+                    alt.Tooltip("week_label:N", title="Week"),
+                    alt.Tooltip("rank:Q", title="Rank"),
+                    alt.Tooltip("Movement Label:N", title="Movement"),
+                ],
             )
             trend_end_labels = trend_df.sort_values("week_num").groupby("team", as_index=False).tail(1)
             label_layer = alt.Chart(trend_end_labels).mark_text(align="left", dx=6, fontSize=11).encode(
@@ -1528,9 +1561,22 @@ def main():
                 y=alt.Y("rank:Q"),
                 text="team:N",
                 color=alt.Color("team:N", legend=None),
-                opacity=alt.condition(alt.datum.is_selected, alt.value(1.0), alt.value(0.25)),
+                opacity=alt.condition(team_hover, alt.value(1.0), alt.value(0.35)),
             )
-            st.altair_chart((line_layer + point_layer + label_layer).interactive(), use_container_width=True)
+            hover_points = point_layer.mark_circle(size=120, opacity=0).add_params(hover, team_hover)
+            hover_rule = alt.Chart(trend_df).mark_rule(color="#9CA3AF", strokeDash=[4, 3]).encode(
+                x="week_num:Q"
+            ).transform_filter(hover)
+            hover_label = alt.Chart(trend_df).mark_text(align="left", dx=10, dy=-10, fontSize=12, fontWeight="bold").encode(
+                x="week_num:Q",
+                y="rank:Q",
+                text="team:N",
+                color=alt.Color("team:N", legend=None),
+            ).transform_filter(hover)
+            st.altair_chart(
+                (line_layer + point_layer + label_layer + hover_points + hover_rule + hover_label).interactive(),
+                use_container_width=True,
+            )
 
         streak_rows = []
         for t in teams:
