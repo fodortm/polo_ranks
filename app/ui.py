@@ -570,13 +570,20 @@ def compute_shared_opponent_score(team, valid_teams, team_vectors, stats, p):
         games = rec["games"]
         total_games += games
         value = rec["win_rate"] if metric == "win_rate" else rec["margin_per_game"]
-        weighted_metric_sum += (value * games)
+        opp_strength = stats[opp]["win_pct"]
+        # Discount results against weak shared opponents so teams cannot
+        # inflate sectional placement purely by farming low-quality common foes.
+        strength_scale = min(max(opp_strength / 0.5, 0.6), 1.4)
+        adjusted_value = value * strength_scale if metric == "win_rate" else value
+        weighted_metric_sum += (adjusted_value * games)
         detail_rows.append({
             "Opponent": opp,
             "Record": f"{rec['wins']}-{rec['losses']}",
             "Games": games,
             "Win %": rec["win_rate"],
             "Margin/Game": rec["margin_per_game"],
+            "Opp Win %": opp_strength,
+            "Strength Scale": strength_scale,
             "Included Teams": sorted(opp_coverage.get(opp, [])),
         })
 
@@ -628,6 +635,8 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
     avg_opp_win_pct = sum(all_opp_win_pcts) / len(all_opp_win_pcts) if all_opp_win_pcts else 0.5
 
     h2h_scores, h2h_details = [], []
+    sectional_wins = 0
+    sectional_h2h_games = 0
     for opp in valid_teams:
         if opp == team:
             continue
@@ -635,6 +644,8 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
         if r["games"] <= 0:
             h2h_scores.append(0.0)
             continue
+        sectional_wins += r["wins"]
+        sectional_h2h_games += r["games"]
         opp_strength, opp_sos = stats[opp]["win_pct"], sos[opp]
         sos_multiplier = 1.0 + ((opp_sos - p["sos_center"]) * p["sos_scale"])
         sos_multiplier *= p["sectional_sos_boost"]
@@ -680,7 +691,14 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
     effective_prior_weight = prior_min_weight + ((prior_max_weight - prior_min_weight) * (1 - prior_sample_reliability))
     local_weight = 1 - effective_prior_weight
     raw_score = local_weight * ((h2h_score * p["h2h_weight"]) + (common_win_pct * p["common_weight"]) + (win_pct * p["win_pct_weight"])) + (effective_prior_weight * global_prior_score)
-    fallback_score = win_pct
+    fallback_score = global_prior_score
+
+    sectional_h2h_win_pct = (sectional_wins / sectional_h2h_games) if sectional_h2h_games > 0 else 0.5
+    # Apply a firm guardrail from in-sectional results so teams with weak
+    # direct sectional performance cannot float too high on broad-season record.
+    sectional_results_factor = min(max(0.70 + (0.60 * sectional_h2h_win_pct), 0.70), 1.30)
+    raw_score *= sectional_results_factor
+    fallback_score *= sectional_results_factor
 
     penalty_reliability = game_penalty * sectional_penalty
     shrink_k = max(float(p.get("reliability_shrink_k", 6.0)), 1e-6)
@@ -702,6 +720,7 @@ def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, ma
         "global_prior_score": global_prior_score, "global_prior_weight": effective_prior_weight,
         "combined_score": combined_score, "common_wins_weighted": common_wins_weighted, "common_games": common_games,
         "reliability": reliability, "raw_score": raw_score, "fallback_score": fallback_score,
+        "sectional_h2h_win_pct": sectional_h2h_win_pct, "sectional_results_factor": sectional_results_factor,
         "penalties": {"game_penalty": game_penalty, "sectional_penalty": sectional_penalty},
         "h2h_details": h2h_details, "non_sectional_common_details": non_sectional_details, "sectional_common_details": sectional_details,
     }
