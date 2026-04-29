@@ -1343,8 +1343,26 @@ def main():
         previous_orders = {"Win%": rank_win_pct(prev_stats, prev_h2h), "Pythag": rank_pythag(prev_stats, prev_py), "AdjPyth": prev_adj, "Elo": rank_elo(prev_stats, prev_elo)}
 
     # Team profile selection
+    default_team = "Evanston"
+    default_compare_team = "New Trier"
     st.sidebar.header("Team Profile")
-    te=st.sidebar.selectbox("Select Team",teams,index=teams.index("Evanston") if "Evanston" in teams else 0)
+    default_team_index = teams.index(default_team) if default_team in teams else 0
+    if "selected_team" not in st.session_state or st.session_state["selected_team"] not in teams:
+        st.session_state["selected_team"] = teams[default_team_index]
+    te = st.sidebar.selectbox("Select Team", teams, key="selected_team")
+    compare_teams = [t for t in teams if t != te]
+    if compare_teams:
+        default_compare_index = compare_teams.index(default_compare_team) if default_compare_team in compare_teams else 0
+        if (
+            "selected_compare_team" not in st.session_state
+            or st.session_state["selected_compare_team"] not in compare_teams
+        ):
+            st.session_state["selected_compare_team"] = compare_teams[default_compare_index]
+        st.sidebar.selectbox("Compare vs", compare_teams, key="selected_compare_team")
+    opp = st.session_state.get("selected_compare_team")
+    if opp == te or opp not in teams:
+        opp = compare_teams[0] if compare_teams else None
+        st.session_state["selected_compare_team"] = opp
     # Compute individual ranks
     ranks = {}
     ranks['win']  = win_ord.index(te)+1 if te in win_ord else None
@@ -1545,10 +1563,7 @@ def main():
             'Rank Adj':ranks['adj'],'Rank Elo':ranks['elo'],'Avg':r_avg,
             'Imputed Share': f"{(team_imputation[te]['imputed']/team_imputation[te]['games'] if team_imputation[te]['games'] else 0):.1%}"
         },orient='index',columns=['Value']))
-        compare_teams = [t for t in teams if t != te]
-        default_compare = "New Trier"
-        default_compare_index = compare_teams.index(default_compare) if default_compare in compare_teams else 0
-        opp=st.selectbox("Compare vs", compare_teams, index=default_compare_index)
+        st.caption(f"Shared context: {te} vs {opp}")
         h = h2h.get((te,opp),{'wins':0,'games':0})
         st.markdown(f"**H2H**: {h['wins']}-{h['games']-h['wins']} in {h['games']} games")
         st.caption("Head-to-head explorer: watch margin trend and whether recent meetings differ from overall record.")
@@ -1692,6 +1707,7 @@ def main():
                              'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in win_ord]})
         df_win["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in win_ord]
         st.dataframe(add_imputation_markers(df_win, include_estimated_scores, highlight_estimated_games))
+        st.caption(f"Context overlay: {te} rank #{win_ord.index(te)+1 if te in win_ord else '-'} vs {opp} rank #{win_ord.index(opp)+1 if opp in win_ord else '-'}")
         st.caption("Why this rank")
         st.dataframe(build_why_rank_rows(win_ord, {t: stats[t]["win_pct"] for t in win_ord}, stats, h2h, sos, team_imputation))
         chart_data=pd.DataFrame({'Team':win_ord,'Win %':[stats[t]['win_pct'] for t in win_ord]})
@@ -1706,6 +1722,7 @@ def main():
                             'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in py_ord]})
         df_py["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in py_ord]
         st.dataframe(add_imputation_markers(df_py, include_estimated_scores, highlight_estimated_games))
+        st.caption(f"Context overlay: {te} rank #{py_ord.index(te)+1 if te in py_ord else '-'} vs {opp} rank #{py_ord.index(opp)+1 if opp in py_ord else '-'}")
         st.caption("Why this rank")
         st.dataframe(build_why_rank_rows(py_ord, py, stats, h2h, sos, team_imputation))
         chart_data=pd.DataFrame({'Team':py_ord,'Pythag':[py[t] for t in py_ord]})
@@ -1720,6 +1737,7 @@ def main():
                              'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in adj_ord]})
         df_adj["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in adj_ord]
         st.dataframe(add_imputation_markers(df_adj, include_estimated_scores, highlight_estimated_games))
+        st.caption(f"Context overlay: {te} rank #{adj_ord.index(te)+1 if te in adj_ord else '-'} vs {opp} rank #{adj_ord.index(opp)+1 if opp in adj_ord else '-'}")
         st.caption("Why this rank")
         st.dataframe(build_why_rank_rows(adj_ord, adj_vals, stats, h2h, sos, team_imputation))
         # Bar chart of adjusted Pyth
@@ -1743,6 +1761,7 @@ def main():
                              'SOS':[f"{sos[t]:.3f}" for t in elo_ord]})
         df_elo["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in elo_ord]
         st.dataframe(add_imputation_markers(df_elo, include_estimated_scores, highlight_estimated_games))
+        st.caption(f"Context overlay: {te} rank #{elo_ord.index(te)+1 if te in elo_ord else '-'} vs {opp} rank #{elo_ord.index(opp)+1 if opp in elo_ord else '-'}")
         st.caption("Why this rank")
         st.dataframe(build_why_rank_rows(elo_ord, elo, stats, h2h, sos, team_imputation))
         chart_data=pd.DataFrame({'Team':elo_ord,'Elo':[elo[t] for t in elo_ord]})
@@ -1756,6 +1775,9 @@ def main():
         st.dataframe(df_avg[[
             "Rank", "Team", "Calibrated Score", "Ordinal Avg (Debug)", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"
         ]])
+        if opp:
+            avg_rank_lookup = {row["Team"]: int(row["Rank"]) for _, row in df_avg.iterrows()}
+            st.caption(f"Context overlay: {te} rank #{avg_rank_lookup.get(te, '-')} vs {opp} rank #{avg_rank_lookup.get(opp, '-')}")
         st.caption("Per-team contribution breakdown (normalized model outputs × reliability-weighted contributions).")
         st.dataframe(df_avg[[
             "Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "Elo %tile",
