@@ -15,8 +15,8 @@
   },
   "ensemble_weights": {
     "Elo": 0.45,
-    "Pyth": 0.30,
-    "AdjPyth": 0.20,
+    "Pyth": 0.3,
+    "AdjPyth": 0.2,
     "Win": 0.05
   },
   "sectional": {
@@ -26,7 +26,7 @@
     "sectional_penalty_threshold": 0.7,
     "h2h_weight": 0.45,
     "common_weight": 0.45,
-    "win_pct_weight": 0.10,
+    "win_pct_weight": 0.1,
     "sos_center": 0.5,
     "sos_scale": 2.0,
     "sectional_sos_boost": 1.1,
@@ -39,5 +39,10 @@
     "global_prior_min_weight": 0.1,
     "global_prior_max_weight": 0.25,
     "global_prior_shrink_k": 4.0
+  },
+  "win_model_cap": {
+    "max_multiplier": 0.85,
+    "coverage_floor": 0.65,
+    "imputation_ceiling": 0.3
   }
 }
