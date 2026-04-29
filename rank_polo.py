@@ -59,6 +59,10 @@ def update_scores(existing, new_df):
 @st.cache_data
 def infer_default_scores(games_df, stats):
     df = games_df.copy()
+    if 'is_imputed' not in df.columns:
+        df['is_imputed'] = df['score1'].isna()
+    else:
+        df['is_imputed'] = df['is_imputed'].fillna(df['score1'].isna()).astype(bool)
     mask = df['score1'].isna()
     for idx in df[mask].index:
         t1, t2 = df.at[idx,'team1'], df.at[idx,'team2']
@@ -74,6 +78,7 @@ def infer_default_scores(games_df, stats):
         # team1 always winner by "d." notation
         df.at[idx,'score1'] = winner_score
         df.at[idx,'score2'] = loser_score
+        df.at[idx,'is_imputed'] = True
     return df
 
 # ---------------- Stats ---------------- #
@@ -167,10 +172,27 @@ def compute_sos(stats):
     return sos
 
 @st.cache_data
-def compute_pythag(stats,exp=2):
+def compute_pythag(games, stats, exp=2, imputed_mode="full", imputed_weight=1.0):
     p={}
+    weighted_gf = defaultdict(float)
+    weighted_ga = defaultdict(float)
+    for _, r in games.iterrows():
+        is_imputed = bool(r.get('is_imputed', False))
+        for me, ms, os_ in [(r.team1, float(r.score1), float(r.score2)), (r.team2, float(r.score2), float(r.score1))]:
+            if is_imputed and imputed_mode == "binary":
+                if ms > os_:
+                    contrib_for, contrib_against = 1.0, 0.0
+                elif ms < os_:
+                    contrib_for, contrib_against = 0.0, 1.0
+                else:
+                    contrib_for = contrib_against = 0.5
+            else:
+                contrib_for, contrib_against = ms, os_
+            weight = imputed_weight if (is_imputed and imputed_mode == "down_weight") else 1.0
+            weighted_gf[me] += contrib_for * weight
+            weighted_ga[me] += contrib_against * weight
     for t,st in stats.items():
-        gf,ga=st['gf'],st['ga']
+        gf,ga=weighted_gf[t],weighted_ga[t]
         p[t]=gf**exp/(gf**exp+ga**exp) if gf+ga>0 else 0
     return p
 
@@ -180,10 +202,11 @@ def logistic(x, k, x0):
 
 # Adjusted Pythagorean with logistic blend
 @st.cache_data
-def compute_adjusted_pythag(games, stats, exp=2, k=10, x0=0.5):
+def compute_adjusted_pythag(games, stats, exp=2, k=10, x0=0.5, imputed_mode="full", imputed_weight=1.0):
     adj_ms = defaultdict(float)
     adj_os = defaultdict(float)
     for _,r in games.iterrows():
+        is_imputed = bool(r.get('is_imputed', False))
         for me,opp,ms,os_ in [(r.team1,r.team2,r.score1,r.score2),(r.team2,r.team1,r.score2,r.score1)]:
             # strength factor via logistic on opponent win_pct
             win_pct = stats[opp]['win_pct']
@@ -195,8 +218,14 @@ def compute_adjusted_pythag(games, stats, exp=2, k=10, x0=0.5):
                 E_os = (st2['gf']/st2['games'] + st1['ga']/st1['games']) / 2
             else:
                 E_ms = E_os = 1
-            adj_ms[me] += E_ms + (ms - E_ms) * s
-            adj_os[me] += E_os + (os_ - E_os) * s
+            if is_imputed and imputed_mode == "binary":
+                ms_eff = 1.0 if ms > os_ else (0.0 if ms < os_ else 0.5)
+                os_eff = 1.0 - ms_eff
+            else:
+                ms_eff, os_eff = ms, os_
+            weight = imputed_weight if (is_imputed and imputed_mode == "down_weight") else 1.0
+            adj_ms[me] += (E_ms + (ms_eff - E_ms) * s) * weight
+            adj_os[me] += (E_os + (os_eff - E_os) * s) * weight
     adj = {}
     for t,st in stats.items():
         g = st['games']
@@ -221,8 +250,8 @@ def rank_win_pct(stats,h2h):
 def rank_pythag(stats,p):
     return sorted(stats.keys(),key=lambda t:p[t],reverse=True)
 
-def rank_adj_pyth(stats,games,h2h,k=10,x0=0.5):
-    vals = compute_adjusted_pythag(games,stats,k=k,x0=x0)
+def rank_adj_pyth(stats,games,h2h,k=10,x0=0.5, imputed_mode="full", imputed_weight=1.0):
+    vals = compute_adjusted_pythag(games,stats,k=k,x0=x0, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
     order = sorted(stats.keys(),key=lambda t:vals[t],reverse=True)
     final = []
     eps = 1e-4
@@ -434,6 +463,9 @@ def main():
         x0 = st.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=float(logistic_cfg["x0"]), step=0.05, disabled=not enable_overrides)
         elo_k = st.slider("Elo K", min_value=1, max_value=64, value=int(elo_cfg["k"]), disabled=not enable_overrides)
         pythag_exp = st.slider("Pythagorean Exponent", min_value=1.0, max_value=5.0, value=float(pythag_cfg["exponent"]), step=0.1, disabled=not enable_overrides)
+        include_inferred_margins = st.toggle("Include inferred margins", value=True)
+        down_weight_imputed = st.toggle("Down-weight inferred games", value=False, disabled=not include_inferred_margins)
+        imputed_weight = st.slider("Inferred game weight", min_value=0.0, max_value=1.0, value=0.5, step=0.05, disabled=(not include_inferred_margins or not down_weight_imputed))
         min_games_ratio = st.slider("Min Games Ratio", min_value=0.1, max_value=1.0, value=float(game_count_cfg["min_games_ratio"]), step=0.05, disabled=not enable_overrides)
 
         st.markdown("**Sectional Weights**")
@@ -469,6 +501,11 @@ def main():
         "logistic": {"k": k, "x0": x0},
         "elo": {"k": elo_k, "initial": elo_cfg["initial"]},
         "pythag": {"exponent": pythag_exp},
+        "imputed_games": {
+            "include_inferred_margins": include_inferred_margins,
+            "down_weight_imputed": down_weight_imputed,
+            "imputed_weight": imputed_weight,
+        },
         "game_count": {"min_games_ratio": min_games_ratio},
         "sectional": active_sectional_params,
     }
@@ -486,12 +523,22 @@ def main():
             initial_stats[t] = {'wins':0,'losses':0,'ties':0,'gf':0,'ga':0,'games':0,'opponents':[]}
     # Infer defaults
     games_inferred = infer_default_scores(raw_games, initial_stats)
+    imputed_mode = "full" if include_inferred_margins else "binary"
+    if include_inferred_margins and down_weight_imputed:
+        imputed_mode = "down_weight"
+    team_imputation = defaultdict(lambda: {"imputed": 0, "games": 0})
+    for r in games_inferred.itertuples():
+        imp = bool(getattr(r, "is_imputed", False))
+        for team in [r.team1, r.team2]:
+            team_imputation[team]["games"] += 1
+            if imp:
+                team_imputation[team]["imputed"] += 1
     # Final stats
     stats,h2h = compute_stats(games_inferred)
     sos = compute_sos(stats)
-    py = compute_pythag(stats, exp=pythag_exp)
-    adj_vals = compute_adjusted_pythag(games_inferred, stats, k=k, x0=x0)
-    adj_ord, _ = rank_adj_pyth(stats, games_inferred, h2h, k=k, x0=x0)
+    py = compute_pythag(games_inferred, stats, exp=pythag_exp, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
+    adj_vals = compute_adjusted_pythag(games_inferred, stats, k=k, x0=x0, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
+    adj_ord, _ = rank_adj_pyth(stats, games_inferred, h2h, k=k, x0=x0, imputed_mode=imputed_mode, imputed_weight=imputed_weight)
     elo = compute_elo(games_inferred, initial=elo_cfg["initial"], k=elo_k)
     matchup_agg = build_matchup_aggregate(games_inferred)
     
@@ -535,7 +582,8 @@ def main():
             'Win %':f"{stats[te]['win_pct']:.3f}",
             'SOS':f"{sos[te]:.3f}",
             'Rank Win%':ranks['win'],'Rank Pythag':ranks['py'],
-            'Rank Adj':ranks['adj'],'Rank Elo':ranks['elo'],'Avg':r_avg
+            'Rank Adj':ranks['adj'],'Rank Elo':ranks['elo'],'Avg':r_avg,
+            'Imputed Share': f"{(team_imputation[te]['imputed']/team_imputation[te]['games'] if team_imputation[te]['games'] else 0):.1%}"
         },orient='index',columns=['Value']))
         opp=st.selectbox("Compare vs",[t for t in teams if t!=te])
         h = h2h.get((te,opp),{'wins':0,'games':0})
@@ -588,7 +636,8 @@ def main():
         st.subheader("Rankings by Win %")
         df_win=pd.DataFrame({'Team':win_ord,
                              'Win %':[f"{stats[t]['win_pct']:.3f}" for t in win_ord],
-                             'SOS':[f"{sos[t]:.3f}" for t in win_ord]})
+                             'SOS':[f"{sos[t]:.3f}" for t in win_ord],
+                             'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in win_ord]})
         st.dataframe(df_win)
         chart_data=pd.DataFrame({'Team':win_ord,'Win %':[stats[t]['win_pct'] for t in win_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Win %'), use_container_width=True)
@@ -598,7 +647,8 @@ def main():
         st.subheader("Rankings by Pythagorean")
         df_py=pd.DataFrame({'Team':py_ord,
                             'Exp %':[f"{py[t]:.3f}" for t in py_ord],
-                            'SOS':[f"{sos[t]:.3f}" for t in py_ord]})
+                            'SOS':[f"{sos[t]:.3f}" for t in py_ord],
+                            'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in py_ord]})
         st.dataframe(df_py)
         chart_data=pd.DataFrame({'Team':py_ord,'Pythag':[py[t] for t in py_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Pythag'),use_container_width=True)
@@ -608,7 +658,8 @@ def main():
         st.subheader("Rankings by Adjusted Pythagorean")
         df_adj=pd.DataFrame({'Team':adj_ord,
                              'AdjPyth %':[f"{adj_vals[t]:.3f}" for t in adj_ord],
-                             'SOS':[f"{sos[t]:.3f}" for t in adj_ord]})
+                             'SOS':[f"{sos[t]:.3f}" for t in adj_ord],
+                             'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in adj_ord]})
         st.dataframe(df_adj)
         # Bar chart of adjusted Pyth
         chart_data = pd.Series({t: adj_vals[t] for t in adj_ord}, name='AdjPyth %')
