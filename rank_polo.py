@@ -231,11 +231,12 @@ def compute_sectional_rankings(stats, h2h, games_inferred, sos):
                 if team2 not in stats or team1 == team2:
                     continue
                 h2h_record = h2h.get((team1, team2), {'wins': 0, 'games': 0, 'gf': 0, 'ga': 0})
-                h2h_matrix[team1][team2] = {
+                h2h_matrix_entry = {
                     'wins': h2h_record['wins'],
                     'games': h2h_record['games'],
                     'win_pct': h2h_record['wins'] / h2h_record['games'] if h2h_record['games'] > 0 else 0
                 }
+                h2h_matrix[team1][team2] = h2h_matrix_entry
         
         def get_team_score(team):
             if team not in stats:
@@ -531,7 +532,7 @@ def main():
                 except Exception as e:
                     st.error(f"Error processing opponent {c}: {str(e)}")
             
-            if dfc:  # Only create DataFrame if we have data
+            if dfc:
                 try:
                     df_common = pd.DataFrame(dfc)
                     st.dataframe(df_common)
