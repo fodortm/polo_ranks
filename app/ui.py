@@ -348,6 +348,128 @@ def compute_expert_fit(method_order, expert_order, top_n=25):
         ],
     }
 
+
+
+def build_rank_overview_chart(top_n_df, metric_label, metric_format):
+    return alt.Chart(top_n_df).mark_bar(cornerRadiusEnd=4).encode(
+        y=alt.Y("Team:N", sort="-x", title=None),
+        x=alt.X(f"{metric_label}:Q", title=metric_label, axis=alt.Axis(format=metric_format)),
+        color=alt.condition(alt.datum.Rank == 1, alt.value(RANK_TIER_COLORS["elite"]), alt.value(RANK_TIER_COLORS["contender"])),
+        tooltip=[alt.Tooltip("Rank:Q", format=CHART_FORMATS["int0"]), "Team:N", alt.Tooltip(f"{metric_label}:Q", format=metric_format)],
+    ).properties(title=f"Current rank bar chart (Top {len(top_n_df)})")
+
+
+def build_trend_chart(trend_pool):
+    return alt.Chart(trend_pool).mark_line(point=True).encode(
+        x=alt.X("week_num:Q", title="Week"),
+        y=alt.Y("rank:Q", title="Rank (1 is best)", scale=alt.Scale(reverse=True)),
+        color=alt.Color("team:N", legend=alt.Legend(title="Top teams")),
+        tooltip=["team:N", "week_label:N", alt.Tooltip("rank:Q", format=CHART_FORMATS["int0"])],
+    ).properties(title="Weekly rank trajectory")
+
+
+def build_movement_chart(movement_rows):
+    return alt.Chart(movement_rows).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
+        x=alt.X("team:N", sort=None, title=None),
+        y=alt.Y("move:Q", title="Week-over-week rank change (+ is better)"),
+        color=alt.Color("direction:N", scale=alt.Scale(domain=["Riser", "Flat", "Faller"], range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]])),
+        tooltip=["team:N", alt.Tooltip("latest_rank:Q", format=CHART_FORMATS["int0"]), alt.Tooltip("prior_rank:Q", format=CHART_FORMATS["int0"]), alt.Tooltip("move:Q", format=CHART_FORMATS["int0"]), "direction:N"],
+    ).properties(title="Movement (risers/fallers)")
+
+
+def build_distribution_chart(dist_df):
+    return alt.Chart(dist_df).mark_bar().encode(
+        x=alt.X("Win %:Q", bin=alt.Bin(maxbins=12), title="Win % bins"),
+        y=alt.Y("count():Q", title="Teams"),
+        tooltip=[alt.Tooltip("count():Q", title="Teams in bin", format=CHART_FORMATS["int0"])],
+    ).properties(title="Metric distribution")
+
+
+def build_offense_defense_chart(scatter_df, top_team):
+    return alt.Chart(scatter_df).mark_circle(size=90, opacity=0.8).encode(
+        x=alt.X("Offense (GPG For):Q"),
+        y=alt.Y("Defense (GPG Against):Q", scale=alt.Scale(reverse=True)),
+        color=alt.condition(alt.datum.Team == top_team, alt.value(RANK_TIER_COLORS["elite"]), alt.value(RANK_TIER_COLORS["support"])),
+        tooltip=["Team:N", alt.Tooltip("Offense (GPG For):Q", format=CHART_FORMATS["float2"]), alt.Tooltip("Defense (GPG Against):Q", format=CHART_FORMATS["float2"])],
+    ).properties(title="Offense vs defense scatter")
+
+
+def render_dashboard_header_kpis(kpi, metric_lens, metric_format):
+    render_spacing("section")
+    render_typography("subtitle", "Band A · Hero summary")
+    hero_cols = st.columns(6)
+    render_kpi_card(hero_cols[0], "Current #1", kpi["top_team"], delta=(f"{metric_lens} {kpi['top_team_metric']:{metric_format}}" if kpi["top_team_metric"] is not None else None), caption=f"Best current league position by {metric_lens} ranking.")
+    render_kpi_card(hero_cols[1], "Biggest riser", kpi["biggest_riser_label"], caption="Largest upward movement in the recent 3-week window.")
+    render_kpi_card(hero_cols[2], "Biggest faller", kpi["biggest_faller_label"], caption="Largest downward movement in the recent 3-week window.")
+    render_kpi_card(hero_cols[3], "Total games", kpi["total_games"], caption="All parsed matchups currently included in this model run.")
+    render_kpi_card(hero_cols[4], "Scored games", kpi["scored_results"], caption="Games with explicit scores recorded in source files.")
+    render_kpi_card(hero_cols[5], "Estimated games", kpi["inferred_results"], caption="Games where scores were inferred from model defaults.")
+
+
+def render_dashboard_controls(preset_defaults):
+    st.markdown("### Global dashboard controls")
+    st.radio("Persona preset", options=["Custom", "Fan", "Coach", "Analyst"], horizontal=True, key="dashboard_persona")
+    selected_persona = st.session_state["dashboard_persona"]
+    if selected_persona in preset_defaults and preset_defaults[selected_persona]:
+        persona_cfg = preset_defaults[selected_persona]
+        st.session_state["dashboard_top_n"] = persona_cfg["top_n"]
+        st.session_state["dashboard_time_window"] = persona_cfg["time_window"]
+        st.session_state["dashboard_metric_lens"] = persona_cfg["metric_lens"]
+    ctl_a, ctl_b, ctl_c = st.columns(3)
+    ctl_a.selectbox("Top N", options=[10, 15, 25], key="dashboard_top_n")
+    ctl_b.selectbox("Time window", options=["Last 4 weeks", "All"], key="dashboard_time_window")
+    ctl_c.selectbox("Metric lens", options=["Win%", "Adj Pyth", "Elo", "Ensemble"], key="dashboard_metric_lens")
+    with st.expander("Advanced options", expanded=False):
+        st.caption("Persona presets set sensible defaults; choose Custom to preserve manual overrides.")
+        trend_top_n = st.slider("Trend teams shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_trend_top_n")
+        movement_top_n = st.slider("Movement rows shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_movement_top_n")
+    return trend_top_n, movement_top_n
+
+
+def render_rank_overview_panel(dashboard_vm, metric_label, metric_format):
+    top_n_df = dashboard_vm["current_rank_table"]
+    if top_n_df.empty:
+        st.info("No rank table available for the current filter window.")
+        return
+    st.altair_chart(apply_chart_theme(build_rank_overview_chart(top_n_df, metric_label, metric_format)), use_container_width=True)
+
+
+def render_trend_panel(dashboard_vm):
+    trend_pool = dashboard_vm["windowed_rank_history"]
+    if trend_pool.empty:
+        st.info("Weekly rank trajectory appears after multiple weekly files are available.")
+        return
+    st.altair_chart(apply_chart_theme(build_trend_chart(trend_pool)), use_container_width=True)
+
+
+def render_movement_panel(dashboard_vm):
+    movement_rows = dashboard_vm["rank_movement_table"]
+    if movement_rows.empty:
+        st.info("Rank movement appears when at least two ranking periods are available.")
+        return
+    st.altair_chart(apply_chart_theme(build_movement_chart(movement_rows)), use_container_width=True)
+    st.dataframe(movement_rows.rename(columns={"team": "Team", "latest_rank": "Current Rank", "prior_rank": "Prior Rank", "move": "Δ Rank", "direction": "Direction"}), use_container_width=True, hide_index=True)
+
+
+def render_distribution_panel(dashboard_vm):
+    st.altair_chart(apply_chart_theme(build_distribution_chart(dashboard_vm["distribution_dataset"])), use_container_width=True)
+
+
+def render_offense_defense_panel(dashboard_vm, top_team):
+    st.altair_chart(apply_chart_theme(build_offense_defense_chart(dashboard_vm["offense_defense_dataset"], top_team)), use_container_width=True)
+
+
+def render_trust_imputation_panel(dashboard_vm):
+    trust_metrics = dashboard_vm["trust_metrics"]
+    impact_df = dashboard_vm["imputation_impact_dataset"]
+    st.markdown("#### Data quality / trust capsule")
+    st.caption("Quick confidence read before acting on rankings.")
+    st.metric("Trust level", trust_metrics["trust_level"])
+    st.progress(trust_metrics["confidence_progress"])
+    st.caption(f"Inferred share: {trust_metrics['imputed_pct']:.1%} · Parsed games: {trust_metrics['parsed_games']} · Teams: {trust_metrics['team_count']}")
+    st.caption("Lower inferred share generally means more stable ranking confidence.")
+    if not impact_df.empty:
+        st.dataframe(impact_df, hide_index=True, use_container_width=True)
 # ---------------- I/O ---------------- #
 @st.cache_data
 def load_scores():
@@ -1514,23 +1636,7 @@ def main():
             "Analyst": {"top_n": 25, "time_window": "All", "metric_lens": "Elo"},
             "Custom": None,
         }
-        st.markdown("### Global dashboard controls")
-        st.radio("Persona preset", options=["Custom", "Fan", "Coach", "Analyst"], horizontal=True, key="dashboard_persona")
-        selected_persona = st.session_state["dashboard_persona"]
-        if selected_persona in preset_defaults and preset_defaults[selected_persona]:
-            persona_cfg = preset_defaults[selected_persona]
-            st.session_state["dashboard_top_n"] = persona_cfg["top_n"]
-            st.session_state["dashboard_time_window"] = persona_cfg["time_window"]
-            st.session_state["dashboard_metric_lens"] = persona_cfg["metric_lens"]
-
-        ctl_a, ctl_b, ctl_c = st.columns(3)
-        ctl_a.selectbox("Top N", options=[10, 15, 25], key="dashboard_top_n")
-        ctl_b.selectbox("Time window", options=["Last 4 weeks", "All"], key="dashboard_time_window")
-        ctl_c.selectbox("Metric lens", options=["Win%", "Adj Pyth", "Elo", "Ensemble"], key="dashboard_metric_lens")
-        with st.expander("Advanced options", expanded=False):
-            st.caption("Persona presets set sensible defaults; choose Custom to preserve manual overrides.")
-            trend_top_n = st.slider("Trend teams shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_trend_top_n")
-            movement_top_n = st.slider("Movement rows shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_movement_top_n")
+        trend_top_n, movement_top_n = render_dashboard_controls(preset_defaults)
 
         metric_lens = st.session_state["dashboard_metric_lens"]
         if metric_lens == "Adj Pyth":
@@ -1573,100 +1679,28 @@ def main():
             movement_top_n=movement_top_n,
         )
         kpi = dashboard_vm["kpi_payload"]
-
-        hero_cols = st.columns(6)
-        render_kpi_card(hero_cols[0], "Current #1", kpi["top_team"], delta=(f"{metric_lens} {kpi['top_team_metric']:{metric_format}}" if kpi["top_team_metric"] is not None else None), caption=f"Best current league position by {metric_lens} ranking.")
-        render_kpi_card(hero_cols[1], "Biggest riser", kpi["biggest_riser_label"], caption="Largest upward movement in the recent 3-week window.")
-        render_kpi_card(hero_cols[2], "Biggest faller", kpi["biggest_faller_label"], caption="Largest downward movement in the recent 3-week window.")
-        render_kpi_card(hero_cols[3], "Total games", kpi["total_games"], caption="All parsed matchups currently included in this model run.")
-        render_kpi_card(hero_cols[4], "Scored games", kpi["scored_results"], caption="Games with explicit scores recorded in source files.")
-        render_kpi_card(hero_cols[5], "Estimated games", kpi["inferred_results"], caption="Games where scores were inferred from model defaults.")
+        render_dashboard_header_kpis(kpi, metric_lens, metric_format)
 
         # ---------------- Band B: Core story visuals ---------------- #
         render_spacing("section")
         render_typography("subtitle", "Band B · Core story visuals")
         b_left, b_right = st.columns([1.2, 1.0])
-
         with b_left:
-            top_n_df = dashboard_vm["current_rank_table"]
-            if top_n_df.empty:
-                st.info("No rank table available for the current filter window.")
-            else:
-                rank_chart = alt.Chart(top_n_df).mark_bar(cornerRadiusEnd=4).encode(
-                y=alt.Y("Team:N", sort="-x", title=None),
-                x=alt.X(f"{metric_label}:Q", title=metric_label, axis=alt.Axis(format=metric_format)),
-                color=alt.condition(alt.datum.Rank == 1, alt.value(RANK_TIER_COLORS["elite"]), alt.value(RANK_TIER_COLORS["contender"])),
-                tooltip=[alt.Tooltip("Rank:Q", format=CHART_FORMATS["int0"]), "Team:N", alt.Tooltip(f"{metric_label}:Q", format=metric_format)],
-                ).properties(title=f"Current rank bar chart (Top {len(top_n_df)})")
-                st.altair_chart(apply_chart_theme(rank_chart), use_container_width=True)
-
+            render_rank_overview_panel(dashboard_vm, metric_label, metric_format)
         with b_right:
-            trend_pool = dashboard_vm["windowed_rank_history"]
-            if not trend_pool.empty:
-                trend_chart = alt.Chart(trend_pool).mark_line(point=True).encode(
-                    x=alt.X("week_num:Q", title="Week"),
-                    y=alt.Y("rank:Q", title="Rank (1 is best)", scale=alt.Scale(reverse=True)),
-                    color=alt.Color("team:N", legend=alt.Legend(title="Top teams")),
-                    tooltip=["team:N", "week_label:N", alt.Tooltip("rank:Q", format=CHART_FORMATS["int0"])],
-                ).properties(title="Weekly rank trajectory")
-                st.altair_chart(apply_chart_theme(trend_chart), use_container_width=True)
-            else:
-                st.info("Weekly rank trajectory appears after multiple weekly files are available.")
-
-        movement_rows = dashboard_vm["rank_movement_table"]
-        if not movement_rows.empty:
-            movement_chart = alt.Chart(movement_rows).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
-                x=alt.X("team:N", sort=None, title=None),
-                y=alt.Y("move:Q", title="Week-over-week rank change (+ is better)"),
-                color=alt.Color("direction:N", scale=alt.Scale(domain=["Riser", "Flat", "Faller"], range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]])),
-                tooltip=["team:N", alt.Tooltip("latest_rank:Q", format=CHART_FORMATS["int0"]), alt.Tooltip("prior_rank:Q", format=CHART_FORMATS["int0"]), alt.Tooltip("move:Q", format=CHART_FORMATS["int0"]), "direction:N"],
-            ).properties(title="Movement (risers/fallers)")
-            st.altair_chart(apply_chart_theme(movement_chart), use_container_width=True)
-            st.dataframe(
-                movement_rows.rename(
-                    columns={"team": "Team", "latest_rank": "Current Rank", "prior_rank": "Prior Rank", "move": "Δ Rank", "direction": "Direction"}
-                ),
-                use_container_width=True,
-                hide_index=True,
-            )
-        else:
-            st.info("Rank movement appears when at least two ranking periods are available.")
+            render_trend_panel(dashboard_vm)
+        render_movement_panel(dashboard_vm)
 
         # ---------------- Band C: Context and trust ---------------- #
         render_spacing("section")
         render_typography("subtitle", "Band C · Context and trust")
         c_left, c_mid, c_right = st.columns([1, 1, 1])
-
         with c_left:
-            dist_df = dashboard_vm["distribution_dataset"]
-            dist_chart = alt.Chart(dist_df).mark_bar().encode(
-                x=alt.X("Win %:Q", bin=alt.Bin(maxbins=12), title="Win % bins"),
-                y=alt.Y("count():Q", title="Teams"),
-                tooltip=[alt.Tooltip("count():Q", title="Teams in bin", format=CHART_FORMATS["int0"])],
-            ).properties(title="Metric distribution")
-            st.altair_chart(apply_chart_theme(dist_chart), use_container_width=True)
-
+            render_distribution_panel(dashboard_vm)
         with c_mid:
-            scatter_df = dashboard_vm["offense_defense_dataset"]
-            scatter_chart = alt.Chart(scatter_df).mark_circle(size=90, opacity=0.8).encode(
-                x=alt.X("Offense (GPG For):Q"),
-                y=alt.Y("Defense (GPG Against):Q", scale=alt.Scale(reverse=True)),
-                color=alt.condition(alt.datum.Team == kpi["top_team"], alt.value(RANK_TIER_COLORS["elite"]), alt.value(RANK_TIER_COLORS["support"])),
-                tooltip=["Team:N", alt.Tooltip("Offense (GPG For):Q", format=CHART_FORMATS["float2"]), alt.Tooltip("Defense (GPG Against):Q", format=CHART_FORMATS["float2"])],
-            ).properties(title="Offense vs defense scatter")
-            st.altair_chart(apply_chart_theme(scatter_chart), use_container_width=True)
-
+            render_offense_defense_panel(dashboard_vm, kpi["top_team"])
         with c_right:
-            trust_metrics = dashboard_vm["trust_metrics"]
-            impact_df = dashboard_vm["imputation_impact_dataset"]
-            st.markdown("#### Data quality / trust capsule")
-            st.caption("Quick confidence read before acting on rankings.")
-            st.metric("Trust level", trust_metrics["trust_level"])
-            st.progress(trust_metrics["confidence_progress"])
-            st.caption(f"Inferred share: {trust_metrics['imputed_pct']:.1%} · Parsed games: {trust_metrics['parsed_games']} · Teams: {trust_metrics['team_count']}")
-            st.caption("Lower inferred share generally means more stable ranking confidence.")
-            if not impact_df.empty:
-                st.dataframe(impact_df, hide_index=True, use_container_width=True)
+            render_trust_imputation_panel(dashboard_vm)
 
         st.info("Primary questions answered above: top team, trend direction, and biggest mover without scrolling.")
         return
