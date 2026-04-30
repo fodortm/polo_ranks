@@ -1895,10 +1895,10 @@ def main():
 
     if selected_section == "3-Metric Plot":
         st.subheader("Team Profile Space: Win% vs Adjusted Pythagorean (Elo size, SOS color)")
-        st.caption("Elo is encoded by size (third-axis proxy) and Strength of Schedule (SOS) is encoded by color.")
+        st.caption("Elo is encoded by size (third-axis proxy) and Strength of Schedule (SOS) is encoded by color (red = weaker, yellow = mid, green = harder).")
         ctl1, ctl2 = st.columns([1, 1.5])
         with ctl1:
-            st.caption("Encoding: Elo → size · SOS → color")
+            st.caption("Encoding: Elo → size · SOS → color (red → yellow → green)")
         with ctl2:
             max_games = max(sts["games"] for sts in stats.values()) if stats else 1
             min_games_plot = st.slider("Minimum games", min_value=0, max_value=max_games, value=int(round(thr)), step=1, key="profile3d_min_games")
@@ -1925,7 +1925,10 @@ def main():
 
             sos_color = alt.Color(
                 "SOS:Q",
-                scale=alt.Scale(domain=[sos_min, sos_max], scheme="tealblues"),
+                scale=alt.Scale(
+                    domain=[sos_min, (sos_min + sos_max) / 2.0, sos_max],
+                    range=["#B91C1C", "#FACC15", "#15803D"],
+                ),
                 legend=alt.Legend(title=f"SOS ({sos_min:.3f}–{sos_max:.3f})"),
             )
             points = alt.Chart(profile_df).mark_circle().encode(
