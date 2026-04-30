@@ -22,6 +22,33 @@ SEMANTIC_COLORS = {
     "negative": "#B50909",
     "neutral": "#6B7280",
 }
+TYPOGRAPHY_SCALE = {"title": "##", "subtitle": "####"}
+SPACING_SCALE = {"section": "<div style='margin-top: 1.25rem;'></div>", "panel": "<div style='margin-top: 0.75rem;'></div>"}
+RANK_TIER_COLORS = {"elite": "#1D4ED8", "contender": "#93C5FD", "support": "#9CA3AF"}
+CHART_FORMATS = {"pct3": ".3f", "float2": ".2f", "int0": ".0f"}
+
+def render_typography(level, text):
+    if level in TYPOGRAPHY_SCALE:
+        st.markdown(f"{TYPOGRAPHY_SCALE[level]} {text}")
+    elif level == "caption":
+        st.caption(text)
+    else:
+        st.write(text)
+
+def render_spacing(level="panel"):
+    st.markdown(SPACING_SCALE.get(level, SPACING_SCALE["panel"]), unsafe_allow_html=True)
+
+def render_kpi_card(container, label, value, delta=None, caption=None):
+    container.metric(label, value, delta=delta)
+    if caption:
+        container.caption(caption)
+
+def apply_chart_theme(chart):
+    return chart.configure_axis(
+        grid=True, tickColor="#D1D5DB", labelColor="#111827", titleColor="#111827"
+    ).configure_legend(
+        orient="bottom", titleColor="#111827", labelColor="#374151", symbolType="circle"
+    ).configure_view(strokeWidth=0)
 
 # ---------------- Parsing ---------------- #
 def _parse_line(line):
@@ -1467,32 +1494,28 @@ def main():
 
     # Tabs & content
     if current_nav == "Dashboard":
-        st.title("Dashboard")
-        st.subheader("League pulse in three visual bands")
-        st.caption("Read top-to-bottom: hero summary, core story visuals, then context + trust signals.")
+        render_typography("title", "Dashboard")
+        render_typography("subtitle", "League pulse in three visual bands")
+        render_typography("caption", "Read top-to-bottom: hero summary, core story visuals, then context + trust signals.")
 
         # ---------------- Band A: Hero summary ---------------- #
-        st.markdown("### Band A · Hero summary")
+        render_spacing("section")
+        render_typography("subtitle", "Band A · Hero summary")
         weekly_ranks = compute_weekly_rank_history(DATA_DIR)
         dashboard_vm = build_dashboard_view_model(stats, win_ord, games_inferred, weekly_ranks)
         kpi = dashboard_vm["kpi_payload"]
 
         hero_cols = st.columns(6)
-        hero_cols[0].metric("Current #1", kpi["top_team"], delta=(f"Win% {kpi['top_team_win']:.3f}" if kpi["top_team_win"] is not None else None))
-        hero_cols[0].caption("Best current league position by Win% ranking.")
-        hero_cols[1].metric("Biggest riser", kpi["biggest_riser_label"])
-        hero_cols[1].caption("Largest upward movement in the recent 3-week window.")
-        hero_cols[2].metric("Biggest faller", kpi["biggest_faller_label"])
-        hero_cols[2].caption("Largest downward movement in the recent 3-week window.")
-        hero_cols[3].metric("Total games", kpi["total_games"])
-        hero_cols[3].caption("All parsed matchups currently included in this model run.")
-        hero_cols[4].metric("Scored games", kpi["scored_results"])
-        hero_cols[4].caption("Games with explicit scores recorded in source files.")
-        hero_cols[5].metric("Estimated games", kpi["inferred_results"])
-        hero_cols[5].caption("Games where scores were inferred from model defaults.")
+        render_kpi_card(hero_cols[0], "Current #1", kpi["top_team"], delta=(f"Win% {kpi['top_team_win']:{CHART_FORMATS['pct3']}}" if kpi["top_team_win"] is not None else None), caption="Best current league position by Win% ranking.")
+        render_kpi_card(hero_cols[1], "Biggest riser", kpi["biggest_riser_label"], caption="Largest upward movement in the recent 3-week window.")
+        render_kpi_card(hero_cols[2], "Biggest faller", kpi["biggest_faller_label"], caption="Largest downward movement in the recent 3-week window.")
+        render_kpi_card(hero_cols[3], "Total games", kpi["total_games"], caption="All parsed matchups currently included in this model run.")
+        render_kpi_card(hero_cols[4], "Scored games", kpi["scored_results"], caption="Games with explicit scores recorded in source files.")
+        render_kpi_card(hero_cols[5], "Estimated games", kpi["inferred_results"], caption="Games where scores were inferred from model defaults.")
 
         # ---------------- Band B: Core story visuals ---------------- #
-        st.markdown("### Band B · Core story visuals")
+        render_spacing("section")
+        render_typography("subtitle", "Band B · Core story visuals")
         b_left, b_right = st.columns([1.2, 1.0])
 
         with b_left:
@@ -1502,11 +1525,11 @@ def main():
             else:
                 rank_chart = alt.Chart(top_n_df).mark_bar(cornerRadiusEnd=4).encode(
                 y=alt.Y("Team:N", sort="-x", title=None),
-                x=alt.X("Win %:Q", title="Win %"),
-                color=alt.condition(alt.datum.Rank == 1, alt.value("#1D4ED8"), alt.value("#93C5FD")),
-                tooltip=["Rank", "Team", alt.Tooltip("Win %:Q", format=".3f")],
+                x=alt.X("Win %:Q", title="Win %", axis=alt.Axis(format=CHART_FORMATS["pct3"])),
+                color=alt.condition(alt.datum.Rank == 1, alt.value(RANK_TIER_COLORS["elite"]), alt.value(RANK_TIER_COLORS["contender"])),
+                tooltip=[alt.Tooltip("Rank:Q", format=CHART_FORMATS["int0"]), "Team:N", alt.Tooltip("Win %:Q", format=CHART_FORMATS["pct3"])],
                 ).properties(title=f"Current rank bar chart (Top {len(top_n_df)})")
-                st.altair_chart(rank_chart, use_container_width=True)
+                st.altair_chart(apply_chart_theme(rank_chart), use_container_width=True)
 
         with b_right:
             trend_pool = dashboard_vm["windowed_rank_history"]
@@ -1515,9 +1538,9 @@ def main():
                     x=alt.X("week_num:Q", title="Week"),
                     y=alt.Y("rank:Q", title="Rank (1 is best)", scale=alt.Scale(reverse=True)),
                     color=alt.Color("team:N", legend=alt.Legend(title="Top teams")),
-                    tooltip=["team", "week_label", "rank"],
+                    tooltip=["team:N", "week_label:N", alt.Tooltip("rank:Q", format=CHART_FORMATS["int0"])],
                 ).properties(title="Weekly rank trajectory")
-                st.altair_chart(trend_chart, use_container_width=True)
+                st.altair_chart(apply_chart_theme(trend_chart), use_container_width=True)
             else:
                 st.info("Weekly rank trajectory appears after multiple weekly files are available.")
 
@@ -1526,10 +1549,10 @@ def main():
             movement_chart = alt.Chart(movement_rows).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
                 x=alt.X("team:N", sort=None, title=None),
                 y=alt.Y("move:Q", title="Week-over-week rank change (+ is better)"),
-                color=alt.Color("direction:N", scale=alt.Scale(domain=["Riser", "Flat", "Faller"], range=["#2E8540", "#6B7280", "#B50909"])),
-                tooltip=["team", "latest_rank", "prior_rank", "move", "direction"],
+                color=alt.Color("direction:N", scale=alt.Scale(domain=["Riser", "Flat", "Faller"], range=[SEMANTIC_COLORS["positive"], SEMANTIC_COLORS["neutral"], SEMANTIC_COLORS["negative"]])),
+                tooltip=["team:N", alt.Tooltip("latest_rank:Q", format=CHART_FORMATS["int0"]), alt.Tooltip("prior_rank:Q", format=CHART_FORMATS["int0"]), alt.Tooltip("move:Q", format=CHART_FORMATS["int0"]), "direction:N"],
             ).properties(title="Movement (risers/fallers)")
-            st.altair_chart(movement_chart, use_container_width=True)
+            st.altair_chart(apply_chart_theme(movement_chart), use_container_width=True)
             st.dataframe(
                 movement_rows.rename(
                     columns={"team": "Team", "latest_rank": "Current Rank", "prior_rank": "Prior Rank", "move": "Δ Rank", "direction": "Direction"}
@@ -1541,7 +1564,8 @@ def main():
             st.info("Rank movement appears when at least two ranking periods are available.")
 
         # ---------------- Band C: Context and trust ---------------- #
-        st.markdown("### Band C · Context and trust")
+        render_spacing("section")
+        render_typography("subtitle", "Band C · Context and trust")
         c_left, c_mid, c_right = st.columns([1, 1, 1])
 
         with c_left:
@@ -1549,19 +1573,19 @@ def main():
             dist_chart = alt.Chart(dist_df).mark_bar().encode(
                 x=alt.X("Win %:Q", bin=alt.Bin(maxbins=12), title="Win % bins"),
                 y=alt.Y("count():Q", title="Teams"),
-                tooltip=[alt.Tooltip("count():Q", title="Teams in bin")],
+                tooltip=[alt.Tooltip("count():Q", title="Teams in bin", format=CHART_FORMATS["int0"])],
             ).properties(title="Metric distribution")
-            st.altair_chart(dist_chart, use_container_width=True)
+            st.altair_chart(apply_chart_theme(dist_chart), use_container_width=True)
 
         with c_mid:
             scatter_df = dashboard_vm["offense_defense_dataset"]
             scatter_chart = alt.Chart(scatter_df).mark_circle(size=90, opacity=0.8).encode(
                 x=alt.X("Offense (GPG For):Q"),
                 y=alt.Y("Defense (GPG Against):Q", scale=alt.Scale(reverse=True)),
-                color=alt.condition(alt.datum.Team == kpi["top_team"], alt.value("#1D4ED8"), alt.value("#9CA3AF")),
-                tooltip=["Team", alt.Tooltip("Offense (GPG For):Q", format=".2f"), alt.Tooltip("Defense (GPG Against):Q", format=".2f")],
+                color=alt.condition(alt.datum.Team == kpi["top_team"], alt.value(RANK_TIER_COLORS["elite"]), alt.value(RANK_TIER_COLORS["support"])),
+                tooltip=["Team:N", alt.Tooltip("Offense (GPG For):Q", format=CHART_FORMATS["float2"]), alt.Tooltip("Defense (GPG Against):Q", format=CHART_FORMATS["float2"])],
             ).properties(title="Offense vs defense scatter")
-            st.altair_chart(scatter_chart, use_container_width=True)
+            st.altair_chart(apply_chart_theme(scatter_chart), use_container_width=True)
 
         with c_right:
             trust_metrics = dashboard_vm["trust_metrics"]
