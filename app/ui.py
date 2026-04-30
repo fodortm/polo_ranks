@@ -182,15 +182,16 @@ def compute_weekly_rank_history(data_dir=DATA_DIR):
 
 
 
-def build_dashboard_view_model(stats, win_ord, games_inferred, weekly_ranks, window_size=3, top_n_rank=12, trend_top_n=8, movement_top_n=8):
+def build_dashboard_view_model(stats, rank_order, rank_metric_values, rank_metric_label, games_inferred, weekly_ranks, window_size=3, top_n_rank=10, trend_top_n=8, movement_top_n=8):
     """Build all dashboard-ready datasets from a single shared computation path."""
     stats = stats or {}
-    win_ord = win_ord or []
+    rank_order = rank_order or []
+    rank_metric_values = rank_metric_values or {}
     games_inferred = games_inferred if games_inferred is not None else pd.DataFrame()
     weekly_ranks = weekly_ranks if weekly_ranks is not None else pd.DataFrame()
 
-    top_team = win_ord[0] if win_ord else None
-    top_team_win = stats.get(top_team, {}).get("win_pct") if top_team else None
+    top_team = rank_order[0] if rank_order else None
+    top_team_metric = rank_metric_values.get(top_team) if top_team else None
     total_games = int(len(games_inferred))
     scored_results = int(games_inferred["score1"].notna().sum()) if "score1" in games_inferred else 0
     inferred_results = int(games_inferred.get("is_imputed", pd.Series(False, index=games_inferred.index)).fillna(False).sum()) if total_games else 0
@@ -227,10 +228,10 @@ def build_dashboard_view_model(stats, win_ord, games_inferred, weekly_ranks, win
         movement_rows = movement_rows.sort_values(["move", "latest_rank"], ascending=[False, True]).head(movement_top_n)
 
     current_rank_table = pd.DataFrame([
-        {"Rank": i + 1, "Team": team, "Win %": stats.get(team, {}).get("win_pct", 0.0)}
-        for i, team in enumerate(win_ord[: min(top_n_rank, len(win_ord))])
+        {"Rank": i + 1, "Team": team, rank_metric_label: rank_metric_values.get(team, 0.0)}
+        for i, team in enumerate(rank_order[: min(top_n_rank, len(rank_order))])
     ])
-    top_teams = win_ord[:min(trend_top_n, len(win_ord))]
+    top_teams = rank_order[:min(trend_top_n, len(rank_order))]
     trend_pool = history_window_df[history_window_df["team"].isin(top_teams)].copy() if not history_window_df.empty else pd.DataFrame(columns=["team", "rank", "week_num", "week_label"])
 
     dist_df = pd.DataFrame({"Team": list(stats.keys()), "Win %": [stats[t]["win_pct"] for t in stats]})
@@ -246,7 +247,7 @@ def build_dashboard_view_model(stats, win_ord, games_inferred, weekly_ranks, win
     return {
         "kpi_payload": {
             "top_team": top_team or "N/A",
-            "top_team_win": top_team_win,
+            "top_team_metric": top_team_metric,
             "biggest_riser_label": biggest_riser_label,
             "biggest_faller_label": biggest_faller_label,
             "total_games": total_games,
@@ -1498,15 +1499,83 @@ def main():
         render_typography("subtitle", "League pulse in three visual bands")
         render_typography("caption", "Read top-to-bottom: hero summary, core story visuals, then context + trust signals.")
 
+        if "dashboard_top_n" not in st.session_state:
+            st.session_state["dashboard_top_n"] = 10
+        if "dashboard_time_window" not in st.session_state:
+            st.session_state["dashboard_time_window"] = "Last 4 weeks"
+        if "dashboard_metric_lens" not in st.session_state:
+            st.session_state["dashboard_metric_lens"] = "Ensemble"
+        if "dashboard_persona" not in st.session_state:
+            st.session_state["dashboard_persona"] = "Custom"
+
+        preset_defaults = {
+            "Fan": {"top_n": 10, "time_window": "Last 4 weeks", "metric_lens": "Ensemble"},
+            "Coach": {"top_n": 15, "time_window": "Last 4 weeks", "metric_lens": "Adj Pyth"},
+            "Analyst": {"top_n": 25, "time_window": "All", "metric_lens": "Elo"},
+            "Custom": None,
+        }
+        st.markdown("### Global dashboard controls")
+        st.radio("Persona preset", options=["Custom", "Fan", "Coach", "Analyst"], horizontal=True, key="dashboard_persona")
+        selected_persona = st.session_state["dashboard_persona"]
+        if selected_persona in preset_defaults and preset_defaults[selected_persona]:
+            persona_cfg = preset_defaults[selected_persona]
+            st.session_state["dashboard_top_n"] = persona_cfg["top_n"]
+            st.session_state["dashboard_time_window"] = persona_cfg["time_window"]
+            st.session_state["dashboard_metric_lens"] = persona_cfg["metric_lens"]
+
+        ctl_a, ctl_b, ctl_c = st.columns(3)
+        ctl_a.selectbox("Top N", options=[10, 15, 25], key="dashboard_top_n")
+        ctl_b.selectbox("Time window", options=["Last 4 weeks", "All"], key="dashboard_time_window")
+        ctl_c.selectbox("Metric lens", options=["Win%", "Adj Pyth", "Elo", "Ensemble"], key="dashboard_metric_lens")
+        with st.expander("Advanced options", expanded=False):
+            st.caption("Persona presets set sensible defaults; choose Custom to preserve manual overrides.")
+            trend_top_n = st.slider("Trend teams shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_trend_top_n")
+            movement_top_n = st.slider("Movement rows shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_movement_top_n")
+
+        metric_lens = st.session_state["dashboard_metric_lens"]
+        if metric_lens == "Adj Pyth":
+            dashboard_order = adj_ord
+            dashboard_metric_values = adj_vals
+            metric_label = "Adj Pyth"
+            metric_format = CHART_FORMATS["float3"]
+        elif metric_lens == "Elo":
+            dashboard_order = elo_ord
+            dashboard_metric_values = elo
+            metric_label = "Elo"
+            metric_format = CHART_FORMATS["float1"]
+        elif metric_lens == "Ensemble":
+            dashboard_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg, expert_nudge_cfg=expert_nudge_cfg)
+            dashboard_order = dashboard_df["Team"].tolist()
+            dashboard_metric_values = dict(zip(dashboard_df["Team"], dashboard_df["Calibrated Score"]))
+            metric_label = "Ensemble"
+            metric_format = CHART_FORMATS["float3"]
+        else:
+            dashboard_order = win_ord
+            dashboard_metric_values = {t: stats.get(t, {}).get("win_pct", 0.0) for t in stats}
+            metric_label = "Win %"
+            metric_format = CHART_FORMATS["pct3"]
+
         # ---------------- Band A: Hero summary ---------------- #
         render_spacing("section")
         render_typography("subtitle", "Band A · Hero summary")
         weekly_ranks = compute_weekly_rank_history(DATA_DIR)
-        dashboard_vm = build_dashboard_view_model(stats, win_ord, games_inferred, weekly_ranks)
+        window_size = 4 if st.session_state["dashboard_time_window"] == "Last 4 weeks" else 999
+        dashboard_vm = build_dashboard_view_model(
+            stats,
+            dashboard_order,
+            dashboard_metric_values,
+            metric_label,
+            games_inferred,
+            weekly_ranks,
+            window_size=window_size,
+            top_n_rank=st.session_state["dashboard_top_n"],
+            trend_top_n=trend_top_n,
+            movement_top_n=movement_top_n,
+        )
         kpi = dashboard_vm["kpi_payload"]
 
         hero_cols = st.columns(6)
-        render_kpi_card(hero_cols[0], "Current #1", kpi["top_team"], delta=(f"Win% {kpi['top_team_win']:{CHART_FORMATS['pct3']}}" if kpi["top_team_win"] is not None else None), caption="Best current league position by Win% ranking.")
+        render_kpi_card(hero_cols[0], "Current #1", kpi["top_team"], delta=(f"{metric_lens} {kpi['top_team_metric']:{metric_format}}" if kpi["top_team_metric"] is not None else None), caption=f"Best current league position by {metric_lens} ranking.")
         render_kpi_card(hero_cols[1], "Biggest riser", kpi["biggest_riser_label"], caption="Largest upward movement in the recent 3-week window.")
         render_kpi_card(hero_cols[2], "Biggest faller", kpi["biggest_faller_label"], caption="Largest downward movement in the recent 3-week window.")
         render_kpi_card(hero_cols[3], "Total games", kpi["total_games"], caption="All parsed matchups currently included in this model run.")
@@ -1525,9 +1594,9 @@ def main():
             else:
                 rank_chart = alt.Chart(top_n_df).mark_bar(cornerRadiusEnd=4).encode(
                 y=alt.Y("Team:N", sort="-x", title=None),
-                x=alt.X("Win %:Q", title="Win %", axis=alt.Axis(format=CHART_FORMATS["pct3"])),
+                x=alt.X(f"{metric_label}:Q", title=metric_label, axis=alt.Axis(format=metric_format)),
                 color=alt.condition(alt.datum.Rank == 1, alt.value(RANK_TIER_COLORS["elite"]), alt.value(RANK_TIER_COLORS["contender"])),
-                tooltip=[alt.Tooltip("Rank:Q", format=CHART_FORMATS["int0"]), "Team:N", alt.Tooltip("Win %:Q", format=CHART_FORMATS["pct3"])],
+                tooltip=[alt.Tooltip("Rank:Q", format=CHART_FORMATS["int0"]), "Team:N", alt.Tooltip(f"{metric_label}:Q", format=metric_format)],
                 ).properties(title=f"Current rank bar chart (Top {len(top_n_df)})")
                 st.altair_chart(apply_chart_theme(rank_chart), use_container_width=True)
 
