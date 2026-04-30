@@ -391,6 +391,30 @@ def render_dashboard_metric_charts(stats, adj_vals, elo, sos, min_games_default=
     )
     st.altair_chart((chart2.add_params(hover_sel)).properties(height=420), use_container_width=True)
 
+    bcar_field = "BCAR" if "BCAR" in gpg_df.columns else ("BCAR Score" if "BCAR Score" in gpg_df.columns else None)
+    if bcar_field:
+        bcar_df = gpg_df.copy()
+        bcar_df[bcar_field] = pd.to_numeric(bcar_df[bcar_field], errors="coerce")
+        bcar_df = bcar_df.dropna(subset=["Elo", "SOS", "AdjPyth", bcar_field, "Team", "Games"])
+        if not bcar_df.empty:
+            st.subheader("Elo vs BCAR")
+            chart3 = alt.Chart(bcar_df).mark_circle().encode(
+                x=alt.X("Elo:Q", title="Elo"),
+                y=alt.Y(f"{bcar_field}:Q", title="BCAR"),
+                size=alt.Size("AdjPyth:Q", scale=alt.Scale(range=[40, 900])),
+                color=sos_color,
+                opacity=base_opacity,
+                tooltip=[
+                    "Team:N",
+                    alt.Tooltip("Elo:Q", format=".1f"),
+                    alt.Tooltip(f"{bcar_field}:Q", format=".3f"),
+                    alt.Tooltip("SOS:Q", format=".3f"),
+                    alt.Tooltip("AdjPyth:Q", format=".3f"),
+                    "Games:Q",
+                ],
+            )
+            st.altair_chart((chart3.add_params(hover_sel)).properties(height=420), use_container_width=True)
+
     st.subheader("Custom 4-metric chart")
     metric_options = {
         "Win %": "WinPct", "Adjusted Pyth": "AdjPyth", "Elo": "Elo", "SOS": "SOS",
@@ -406,11 +430,11 @@ def render_dashboard_metric_charts(stats, adj_vals, elo, sos, min_games_default=
     c_time = st.selectbox("Custom chart: time frame", ["Current season"], key="dashboard_custom_time")
     rank_key = metric_options[c_metric]
     custom_df = custom_df.sort_values(rank_key, ascending=False).head(c_top_n)
-    chart3 = alt.Chart(custom_df).mark_circle().encode(
+    chart4 = alt.Chart(custom_df).mark_circle().encode(
         x=alt.X(f"{metric_options[x_metric]}:Q", title=x_metric), y=alt.Y(f"{metric_options[y_metric]}:Q", title=y_metric),
         size=alt.Size(f"{metric_options[size_metric]}:Q"), color=sos_color, opacity=base_opacity, tooltip=["Team:N"]
     )
-    st.altair_chart((chart3.add_params(hover_sel)).properties(height=420), use_container_width=True)
+    st.altair_chart((chart4.add_params(hover_sel)).properties(height=420), use_container_width=True)
 
 
 def build_rank_overview_chart(top_n_df, metric_label, metric_format):
