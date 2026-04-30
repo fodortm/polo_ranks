@@ -934,6 +934,32 @@ def compute_elo(games, initial=1500, k=32, phase_k_enabled=False, early_phase_ga
 def rank_elo(stats,elo):
     return sorted(stats.keys(),key=lambda t:elo[t],reverse=True)
 
+def sort_teams_by_mode(mode, teams, stats, sos, ensemble_df, elo=None, bcar_table=None, adj_vals=None, pyth_vals=None):
+    base_teams = [t for t in teams if t in stats]
+    ensemble_rank = {}
+    if ensemble_df is not None and not ensemble_df.empty and "Team" in ensemble_df.columns:
+        for i, team in enumerate(ensemble_df["Team"].tolist(), start=1):
+            ensemble_rank[team] = i
+
+    bcar_score = {}
+    if bcar_table is not None and not bcar_table.empty and "Team" in bcar_table.columns and "BCAR Score" in bcar_table.columns:
+        bcar_score = dict(zip(bcar_table["Team"], bcar_table["BCAR Score"]))
+
+    mode_key = (mode or "Ensemble rank").strip()
+    if mode_key == "Win%":
+        return sorted(base_teams, key=lambda t: (-stats[t].get("win_pct", 0.0), ensemble_rank.get(t, 9999), t))
+    if mode_key == "Pyth":
+        return sorted(base_teams, key=lambda t: (-(pyth_vals or {}).get(t, 0.0), ensemble_rank.get(t, 9999), t))
+    if mode_key == "AdjPyth":
+        return sorted(base_teams, key=lambda t: (-(adj_vals or {}).get(t, 0.0), ensemble_rank.get(t, 9999), t))
+    if mode_key == "Elo":
+        return sorted(base_teams, key=lambda t: (-(elo or {}).get(t, 0.0), ensemble_rank.get(t, 9999), t))
+    if mode_key == "BCAR":
+        return sorted(base_teams, key=lambda t: (-bcar_score.get(t, float("-inf")), ensemble_rank.get(t, 9999), t), reverse=False)
+    if mode_key == "SOS":
+        return sorted(base_teams, key=lambda t: (-sos.get(t, 0.0), ensemble_rank.get(t, 9999), t))
+    return sorted(base_teams, key=lambda t: (ensemble_rank.get(t, 9999), t))
+
 # ---------------- Sectional Rankings ---------------- #
 SECTIONAL_SCORE_PARAMS = {
     "game_penalty_threshold": 0.8,
@@ -1808,15 +1834,20 @@ def main():
         prev_elo = compute_elo(infer_default_scores(prior_games, prev_stats), initial=elo_cfg["initial"], k=elo_k)
         previous_orders = {"Win%": rank_win_pct(prev_stats, prev_h2h), "Pythag": rank_pythag(prev_stats, prev_py), "AdjPyth": prev_adj, "Elo": rank_elo(prev_stats, prev_elo)}
 
+    sort_modes = ["Ensemble rank", "Elo", "BCAR", "AdjPyth", "Pyth", "Win%", "SOS"]
     # Team profile selection
     default_team = "Evanston"
     default_compare_team = "New Trier"
     st.sidebar.header("Team Profile")
-    default_team_index = teams.index(default_team) if default_team in teams else 0
+    selector_sort_mode = st.sidebar.selectbox("Team selector order", sort_modes, key="team_selector_sort_mode")
+    selector_order = sort_teams_by_mode(
+        selector_sort_mode, teams, stats, sos, primary_payload["table"], elo=elo, bcar_table=bcar_table, adj_vals=adj_vals, pyth_vals=py
+    )
+    default_team_index = selector_order.index(default_team) if default_team in selector_order else 0
     if "selected_team" not in st.session_state or st.session_state["selected_team"] not in teams:
-        st.session_state["selected_team"] = teams[default_team_index]
-    te = st.sidebar.selectbox("Select Team", teams, key="selected_team")
-    compare_teams = [t for t in teams if t != te]
+        st.session_state["selected_team"] = selector_order[default_team_index]
+    te = st.sidebar.selectbox("Select Team", selector_order, key="selected_team")
+    compare_teams = [t for t in selector_order if t != te]
     if compare_teams:
         default_compare_index = compare_teams.index(default_compare_team) if default_compare_team in compare_teams else 0
         if (
@@ -1948,6 +1979,18 @@ def main():
     st.markdown("### Content")
     st.radio("View", options=available_sections, horizontal=True, key="content_section")
     selected_section = st.session_state["content_section"]
+    table_sort_mode = st.session_state.get("rank_table_sort_mode", "Ensemble rank")
+    if selected_section in ["Win%", "Pythag", "AdjPyth", "Elo", "BCAR", "Ensemble (Primary)"]:
+        table_sort_mode = st.radio(
+            "Team order",
+            options=sort_modes,
+            horizontal=True,
+            key="rank_table_sort_mode",
+        )
+
+    table_order = sort_teams_by_mode(
+        table_sort_mode, teams, stats, sos, primary_payload["table"], elo=elo, bcar_table=bcar_table, adj_vals=adj_vals, pyth_vals=py
+    )
 
     if selected_section == "Profile":
         st.subheader(f"Profile: {te}")
@@ -2098,11 +2141,12 @@ def main():
             "Rankings by Win %",
             help="Tie-breaks: 1) Win%, 2) if exactly two teams are tied use head-to-head, 3) for ties of 3+ use mini-table (head-to-head points, then mini-table win%), 4) mini-table goal differential, 5) full-season goal differential."
         )
-        df_win=pd.DataFrame({'Team':win_ord,
-                             'Win %':[f"{stats[t]['win_pct']:.3f}" for t in win_ord],
-                             'SOS':[f"{sos[t]:.3f}" for t in win_ord],
-                             'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in win_ord]})
-        df_win["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in win_ord]
+        win_view = [t for t in table_order if t in win_ord]
+        df_win=pd.DataFrame({'Team':win_view,
+                             'Win %':[f"{stats[t]['win_pct']:.3f}" for t in win_view],
+                             'SOS':[f"{sos[t]:.3f}" for t in win_view],
+                             'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in win_view]})
+        df_win["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in win_view]
         st.dataframe(add_imputation_markers(df_win, include_estimated_scores, highlight_estimated_games))
         st.caption(f"Context overlay: {te} rank #{win_ord.index(te)+1 if te in win_ord else '-'} vs {opp} rank #{win_ord.index(opp)+1 if opp in win_ord else '-'}")
         st.caption("Why this rank")
@@ -2112,11 +2156,12 @@ def main():
     
     if selected_section == "Pythag":
         st.subheader("Rankings by Pythagorean")
-        df_py=pd.DataFrame({'Team':py_ord,
-                            'Exp %':[f"{py[t]:.3f}" for t in py_ord],
-                            'SOS':[f"{sos[t]:.3f}" for t in py_ord],
-                            'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in py_ord]})
-        df_py["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in py_ord]
+        py_view = [t for t in table_order if t in py_ord]
+        df_py=pd.DataFrame({'Team':py_view,
+                            'Exp %':[f"{py[t]:.3f}" for t in py_view],
+                            'SOS':[f"{sos[t]:.3f}" for t in py_view],
+                            'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in py_view]})
+        df_py["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in py_view]
         st.dataframe(add_imputation_markers(df_py, include_estimated_scores, highlight_estimated_games))
         st.caption(f"Context overlay: {te} rank #{py_ord.index(te)+1 if te in py_ord else '-'} vs {opp} rank #{py_ord.index(opp)+1 if opp in py_ord else '-'}")
         st.caption("Why this rank")
@@ -2126,11 +2171,12 @@ def main():
     
     if selected_section == "AdjPyth":
         st.subheader("Rankings by Adjusted Pythagorean")
-        df_adj=pd.DataFrame({'Team':adj_ord,
-                             'AdjPyth %':[f"{adj_vals[t]:.3f}" for t in adj_ord],
-                             'SOS':[f"{sos[t]:.3f}" for t in adj_ord],
-                             'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in adj_ord]})
-        df_adj["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in adj_ord]
+        adj_view = [t for t in table_order if t in adj_ord]
+        df_adj=pd.DataFrame({'Team':adj_view,
+                             'AdjPyth %':[f"{adj_vals[t]:.3f}" for t in adj_view],
+                             'SOS':[f"{sos[t]:.3f}" for t in adj_view],
+                             'Imputed %':[f"{(team_imputation[t]['imputed']/team_imputation[t]['games'] if team_imputation[t]['games'] else 0):.1%}" for t in adj_view]})
+        df_adj["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in adj_view]
         st.dataframe(add_imputation_markers(df_adj, include_estimated_scores, highlight_estimated_games))
         st.caption(f"Context overlay: {te} rank #{adj_ord.index(te)+1 if te in adj_ord else '-'} vs {opp} rank #{adj_ord.index(opp)+1 if opp in adj_ord else '-'}")
         st.caption("Why this rank")
@@ -2150,10 +2196,11 @@ def main():
     if selected_section == "Elo":
         st.subheader("Rankings by Elo")
         st.caption("Elo volatility has been intentionally reduced to better match expert poll stability.")
-        df_elo=pd.DataFrame({'Team':elo_ord,
-                             'Elo':[f"{elo[t]:.1f}" for t in elo_ord],
-                             'SOS':[f"{sos[t]:.3f}" for t in elo_ord]})
-        df_elo["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in elo_ord]
+        elo_view = [t for t in table_order if t in elo_ord]
+        df_elo=pd.DataFrame({'Team':elo_view,
+                             'Elo':[f"{elo[t]:.1f}" for t in elo_view],
+                             'SOS':[f"{sos[t]:.3f}" for t in elo_view]})
+        df_elo["Confidence"] = [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in elo_view]
         st.dataframe(add_imputation_markers(df_elo, include_estimated_scores, highlight_estimated_games))
         st.caption(f"Context overlay: {te} rank #{elo_ord.index(te)+1 if te in elo_ord else '-'} vs {opp} rank #{elo_ord.index(opp)+1 if opp in elo_ord else '-'}")
         st.caption("Why this rank")
@@ -2167,13 +2214,16 @@ def main():
             st.info("No BCAR rows available for the current minimum-games threshold.")
         else:
             show_cols = ["Rank", "Team", "BCAR Score", "Strength", "Strength 95% Low", "Strength 95% High", "SOS_BCAR", "SOV_BCAR", "BL_BCAR", "Resume_BCAR", "Confidence"]
-            st.dataframe(bcar_table[show_cols], use_container_width=True, hide_index=True)
+            bcar_view = [t for t in table_order if t in set(bcar_table["Team"].tolist())]
+            bcar_view_df = bcar_table.set_index("Team").loc[bcar_view].reset_index()
+            st.dataframe(bcar_view_df[show_cols], use_container_width=True, hide_index=True)
             st.caption(f"Context overlay: {te} rank #{primary_payload['rank_lookup'].get(te, '-')} vs {opp} rank #{primary_payload['rank_lookup'].get(opp, '-')} (primary)")
     
     if selected_section == "Ensemble (Primary)":
         st.subheader("Rankings by Ensemble (Primary)")
         df_avg = primary_payload["table"]
-        st.dataframe(df_avg[[
+        df_avg_view = df_avg.set_index("Team").loc[[t for t in table_order if t in set(df_avg["Team"].tolist())]].reset_index()
+        st.dataframe(df_avg_view[[
             "Rank", "Team", "Calibrated Score", "Ordinal Avg (Debug)", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"
         ]])
         if opp:
@@ -2208,7 +2258,7 @@ def main():
             st.caption("Disagreement diagnostic: look for teams with large spread where model assumptions diverge.")
             sort_mode = st.radio(
                 "Row sort",
-                options=["Disagreement (high to low)", "Ensemble rank"],
+                options=["Disagreement (high to low)", "Ensemble rank", "Elo", "BCAR", "AdjPyth", "Pyth", "Win%", "SOS"],
                 horizontal=True,
                 key="model_disagreement_sort_mode",
             )
@@ -2220,7 +2270,9 @@ def main():
             if sort_mode == "Disagreement (high to low)":
                 ordered_teams = heatmap_df.sort_values(["Spread", "Std Dev", "Rank"], ascending=[False, False, True])["Team"].tolist()
             else:
-                ordered_teams = heatmap_df.sort_values("Rank")["Team"].tolist()
+                ordered_teams = sort_teams_by_mode(
+                    sort_mode, heatmap_df["Team"].tolist(), stats, sos, df_avg, elo=elo, bcar_table=bcar_table, adj_vals=adj_vals, pyth_vals=py
+                )
             heatmap_long = heatmap_df.melt(
                 id_vars=["Rank", "Team", "Team Mean", "Spread", "Std Dev"],
                 value_vars=percentile_cols,
