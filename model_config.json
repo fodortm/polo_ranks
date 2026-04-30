@@ -18,9 +18,10 @@
     "min_games_ratio": 0.5
   },
   "ensemble_weights": {
-    "Elo": 0.45,
-    "Pyth": 0.3,
-    "AdjPyth": 0.2,
+    "Elo": 0.4,
+    "BCAR": 0.25,
+    "AdjPyth": 0.18,
+    "Pyth": 0.12,
     "Win": 0.05
   },
   "sectional": {
