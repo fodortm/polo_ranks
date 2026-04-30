@@ -1053,6 +1053,20 @@ def main():
     )
     is_deep_dive = st.session_state["view_mode"] == "Deep Dive"
     st.info(f"Current mode: **{st.session_state['view_mode']}**")
+
+    casual_nav = ["Dashboard", "Team Profile", "Rank Tables", "Sectionals"]
+    power_nav = ["Dashboard", "Team Profile", "Rank Tables", "Sectionals", "Model Diagnostics"]
+    nav_options = power_nav if is_deep_dive else casual_nav
+    if "primary_nav" not in st.session_state or st.session_state["primary_nav"] not in nav_options:
+        st.session_state["primary_nav"] = "Dashboard"
+    st.markdown("### Primary Navigation")
+    st.radio(
+        "Go to",
+        options=nav_options,
+        horizontal=True,
+        key="primary_nav",
+    )
+    current_nav = st.session_state["primary_nav"]
     config = load_model_config()
     ensemble_weights_cfg = {
         "Elo": float(config.get("ensemble_weights", {}).get("Elo", 0.45)),
@@ -1594,6 +1608,41 @@ def main():
         st.info("Use the Changes tab to compare new uploads vs the previous snapshot.")
 
     # Tabs & content
+    if current_nav == "Dashboard":
+        st.title("Dashboard")
+        st.subheader("At-a-glance league intelligence")
+        st.caption("Scan the league instantly: top teams, movement, and sectional power in one view before diving deeper.")
+
+        overview_cols = st.columns(4)
+        overview_cols[0].metric("Teams tracked", len(teams))
+        overview_cols[1].metric("Games processed", len(games_inferred))
+        overview_cols[2].metric("Scored results", int(games_inferred["score1"].notna().sum()))
+        overview_cols[3].metric("Inferred results", int(games_inferred.get("is_imputed", pd.Series(False, index=games_inferred.index)).fillna(False).sum()))
+
+        st.markdown("#### Snapshot rankings")
+        snapshot = pd.DataFrame({
+            "Rank": range(1, min(11, len(win_ord) + 1)),
+            "Win%": win_ord[:10],
+            "Pythag": py_ord[:10],
+            "AdjPyth": adj_ord[:10],
+            "Elo": elo_ord[:10],
+        })
+        st.dataframe(snapshot, use_container_width=True, hide_index=True)
+
+        if sectional_order:
+            st.markdown("#### Sectional pulse")
+            df_strength = pd.DataFrame({
+                "Sectional": sectional_order,
+                "Strength": [
+                    sum(stats[t]["win_pct"] for t in sectional_rankings[s] if t in stats) / max(1, len([t for t in sectional_rankings[s] if t in stats]))
+                    for s in sectional_order
+                ],
+            }).sort_values("Strength", ascending=False)
+            st.bar_chart(df_strength.set_index("Sectional")["Strength"])
+
+        st.info("Use Primary Navigation to open Team Profile, Rank Tables, Sectionals, or (in Deep Dive) Model Diagnostics.")
+        return
+
     tabs = st.tabs(["Profile","Win%","Pythag","AdjPyth","Elo","Avg","Sectionals","Changes"])
     
     # Profile tab
