@@ -1921,7 +1921,9 @@ def main():
         render_dashboard_metric_charts(stats, adj_vals, elo, sos, min_games_default=int(round(thr)))
 
         st.subheader("Weekly rank trend")
-        trend_metric = st.selectbox("Trend metric", ["Win %", "Adjusted Pyth", "Elo", "Ensemble"], key="dashboard_weekly_metric")
+        if "dashboard_weekly_metric" not in st.session_state:
+            st.session_state["dashboard_weekly_metric"] = "Ensemble"
+        trend_metric = st.selectbox("Trend metric", ["Ensemble", "Win %", "Adjusted Pyth", "Elo"], key="dashboard_weekly_metric")
         trend_n = st.slider("Teams to show", min_value=5, max_value=max(5, len(dashboard_order)), value=min(12, len(dashboard_order)), key="dashboard_weekly_top_n")
         trend_window = st.selectbox("Trend time frame", ["Last 4 weeks", "All"], key="dashboard_weekly_window")
         weekly_all = compute_weekly_rank_history(DATA_DIR)
@@ -1938,8 +1940,8 @@ def main():
         return
 
     section_defaults = {"Team Profile": "Profile", "Rank Tables": "Ensemble (Primary)", "Sectionals": "Sectionals"}
-    all_sections = ["Profile","Win%","Pythag","AdjPyth","Elo","BCAR","Ensemble (Primary)","Sectionals"]
-    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Win%","Pythag","AdjPyth","Elo","BCAR","Ensemble (Primary)"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
+    all_sections = ["Profile","Ensemble (Primary)","Win%","Pythag","AdjPyth","Elo","BCAR","Sectionals"]
+    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Ensemble (Primary)","Win%","Pythag","AdjPyth","Elo","BCAR"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
     default_section = section_defaults.get(current_nav, "Profile")
     if "content_section" not in st.session_state or st.session_state["content_section"] not in available_sections:
         st.session_state["content_section"] = default_section if default_section in available_sections else available_sections[0]
@@ -1955,8 +1957,9 @@ def main():
             'GD/Game':f"{(stats[te]['gf']-stats[te]['ga'])/stats[te]['games']:.2f}",
             'Win %':f"{stats[te]['win_pct']:.3f}",
             'SOS':f"{sos[te]:.3f}",
+            'Ensemble (Primary)':r_avg,
             'Rank Win%':ranks['win'],'Rank Pythag':ranks['py'],
-            'Rank Adj':ranks['adj'],'Rank Elo':ranks['elo'],'Ensemble (Primary)':r_avg,
+            'Rank Adj':ranks['adj'],'Rank Elo':ranks['elo'],
             'Imputed Share': f"{(team_imputation[te]['imputed']/team_imputation[te]['games'] if team_imputation[te]['games'] else 0):.1%}"
         },orient='index',columns=['Value']))
         st.caption(f"Shared context: {te} vs {opp}")
