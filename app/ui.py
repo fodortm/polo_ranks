@@ -66,6 +66,11 @@ def render_typography(level, text):
 def render_spacing(level="panel"):
     st.markdown(SPACING_SCALE.get(level, SPACING_SCALE["panel"]), unsafe_allow_html=True)
 
+def render_primary_rank_caption_block():
+    st.caption("Ensemble (Primary) resolves ties in this order: calibrated score → direct H2H tiebreak → SOS margin tiebreak → stable secondary key.")
+    st.caption("SOS is used as a context/sorting signal and tiebreak ingredient; it does not independently set rank unless SOS is the selected sorting mode.")
+
+
 def render_kpi_card(container, label, value, delta=None, caption=None):
     container.metric(label, value, delta=delta)
     if caption:
@@ -210,7 +215,7 @@ def compute_weekly_rank_history(data_dir=DATA_DIR):
 
 
 
-def build_dashboard_view_model(stats, rank_order, rank_metric_values, rank_metric_label, games_inferred, weekly_ranks, window_size=3, top_n_rank=10, trend_top_n=8, movement_top_n=8):
+def build_dashboard_view_model(stats, rank_order, rank_metric_values, rank_metric_label, games_inferred, weekly_ranks, window_size=3, top_n_rank=10, trend_top_n=8, movement_top_n=8, primary_table=None, sos=None):
     """Build all dashboard-ready datasets from a single shared computation path."""
     stats = stats or {}
     rank_order = rank_order or []
@@ -259,6 +264,13 @@ def build_dashboard_view_model(stats, rank_order, rank_metric_values, rank_metri
         {"Rank": i + 1, "Team": team, rank_metric_label: rank_metric_values.get(team, 0.0)}
         for i, team in enumerate(rank_order[: min(top_n_rank, len(rank_order))])
     ])
+    if rank_metric_label == "Ensemble (Primary)" and isinstance(primary_table, pd.DataFrame) and not primary_table.empty:
+        diag_cols = ["Team", "Calibrated Score", "Composite Confidence", "Weight Elo", "Weight BCAR", "Weight AdjPyth", "Weight Pyth", "Weight Win"]
+        available_diag_cols = [c for c in diag_cols if c in primary_table.columns]
+        diag_df = primary_table[available_diag_cols].copy()
+        current_rank_table = current_rank_table.merge(diag_df, on="Team", how="left")
+    if isinstance(sos, dict):
+        current_rank_table["SOS"] = current_rank_table["Team"].map(lambda t: sos.get(t, 0.0))
     top_teams = rank_order[:min(trend_top_n, len(rank_order))]
     trend_pool = history_window_df[history_window_df["team"].isin(top_teams)].copy() if not history_window_df.empty else pd.DataFrame(columns=["team", "rank", "week_num", "week_label"])
 
@@ -528,6 +540,13 @@ def render_rank_overview_panel(dashboard_vm, metric_label, metric_format):
         st.info("No rank table available for the current filter window.")
         return
     st.altair_chart(apply_chart_theme(build_rank_overview_chart(top_n_df, metric_label, metric_format)), use_container_width=True)
+    if metric_label == "Ensemble (Primary)":
+        preferred_cols = ["Rank", "Team", "Ensemble Score", "Composite Confidence", "Weight Elo", "Weight BCAR", "Weight AdjPyth", "Weight Pyth", "Weight Win", "SOS"]
+        dashboard_table = top_n_df.rename(columns={"Calibrated Score": "Ensemble Score"})
+        show_cols = [c for c in preferred_cols if c in dashboard_table.columns]
+        if show_cols:
+            st.dataframe(dashboard_table[show_cols], use_container_width=True, hide_index=True)
+        render_primary_rank_caption_block()
 
 
 def render_trend_panel(dashboard_vm):
@@ -1469,6 +1488,8 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
         rows.append({
             "Team": team,
             "Calibrated Score": calibrated_score,
+            "Composite Confidence": confidence,
+            "SOS": sos.get(team, 0.0),
             "Direct H2H Tiebreak": compute_rank_tie_break_key(team, stats, sos, h2h)[0],
             "SOS Margin Tiebreak": compute_rank_tie_break_key(team, stats, sos, h2h)[1],
             "Stable Secondary": compute_rank_tie_break_key(team, stats, sos, h2h)[2],
@@ -1942,7 +1963,7 @@ def main():
         elif metric_lens == "Ensemble":
             dashboard_order = primary_payload["ordered_teams"]
             dashboard_metric_values = primary_payload["score_lookup"]
-            metric_label = "Ensemble"
+            metric_label = "Ensemble (Primary)"
             metric_format = CHART_FORMATS["float3"]
         else:
             dashboard_order = win_ord
@@ -1964,6 +1985,8 @@ def main():
             top_n_rank=st.session_state["dashboard_top_n"],
             trend_top_n=trend_top_n,
             movement_top_n=movement_top_n,
+            primary_table=primary_payload["table"],
+            sos=sos,
         )
         kpi = dashboard_vm["kpi_payload"]
         render_dashboard_header_kpis(kpi, metric_lens, metric_format)
@@ -2259,12 +2282,14 @@ def main():
         st.subheader("Rankings by Ensemble (Primary)")
         df_avg = primary_payload["table"]
         df_avg_view = df_avg.set_index("Team").loc[[t for t in table_order if t in set(df_avg["Team"].tolist())]].reset_index()
-        st.dataframe(df_avg_view[[
-            "Rank", "Team", "Calibrated Score", "Ordinal Avg (Debug)", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"
-        ]])
+        df_avg_display = df_avg_view.rename(columns={"Calibrated Score": "Ensemble Score", "Weight Elo": "Elo Contribution", "Weight BCAR": "BCAR Contribution", "Weight AdjPyth": "AdjPyth Contribution", "Weight Pyth": "Pyth Contribution", "Weight Win": "Win Contribution"})
+        st.dataframe(df_avg_display[[
+            "Rank", "Team", "Ensemble Score", "Composite Confidence", "Elo Contribution", "BCAR Contribution", "AdjPyth Contribution", "Pyth Contribution", "Win Contribution", "SOS"
+        ]], use_container_width=True, hide_index=True)
         if opp:
-            st.caption(f"Context overlay: {te} rank #{primary_payload['rank_lookup'].get(te, '-')} vs {opp} rank #{primary_payload['rank_lookup'].get(opp, '-')}")
-        st.caption("Per-team contribution breakdown (normalized model outputs × reliability-weighted contributions).")
+            st.caption(f"Context overlay (Ensemble Primary): {te} rank #{primary_payload['rank_lookup'].get(te, '-')} vs {opp} rank #{primary_payload['rank_lookup'].get(opp, '-')}")
+        render_primary_rank_caption_block()
+        st.caption("Per-team contribution diagnostics (normalized model outputs × reliability-weighted contributions).")
         st.dataframe(df_avg[[
             "Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "BCAR %tile", "Elo %tile",
             "Norm Weight Win", "Norm Weight Pyth", "Norm Weight AdjPyth", "Norm Weight BCAR", "Norm Weight Elo",
