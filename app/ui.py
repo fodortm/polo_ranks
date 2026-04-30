@@ -1480,6 +1480,33 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
     ordered = ["Rank"] + [c for c in df.columns if c != "Rank"]
     return df[ordered]
 
+def build_primary_ranking_payload(teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=None, win_model_cap=None, ensemble_breadth_cfg=None, expert_nudge_cfg=None):
+    eligible_teams = [t for t in teams if t in model_orders["Win"] and t in model_orders["Pyth"] and t in model_orders["AdjPyth"] and t in model_orders["Elo"]]
+    ensemble_df = build_calibrated_ensemble(
+        eligible_teams, model_orders, stats, h2h, sos, team_imputation,
+        ensemble_base_weights=ensemble_base_weights,
+        win_model_cap=win_model_cap,
+        ensemble_breadth_cfg=ensemble_breadth_cfg,
+        expert_nudge_cfg=expert_nudge_cfg
+    )
+    ordered_teams = ensemble_df["Team"].tolist()
+    return {
+        "ordered_teams": ordered_teams,
+        "rank_lookup": {team: i + 1 for i, team in enumerate(ordered_teams)},
+        "score_lookup": dict(zip(ensemble_df["Team"], ensemble_df["Calibrated Score"])),
+        "confidence_lookup": {t: build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in ordered_teams},
+        "component_diagnostics": {
+            row["Team"]: {
+                "elo": row["Norm Weight Elo"] * row["Elo %tile"],
+                "bcar": 0.0,
+                "adj_pyth": row["Norm Weight AdjPyth"] * row["AdjPyth %tile"],
+                "pyth": row["Norm Weight Pyth"] * row["Pyth %tile"],
+                "win": row["Norm Weight Win"] * row["Win %tile"],
+            } for _, row in ensemble_df.iterrows()
+        },
+        "table": ensemble_df,
+    }
+
 
 def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
@@ -1733,6 +1760,13 @@ def main():
     global_prior_teams = [t for t in teams if t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
     global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg, expert_nudge_cfg=expert_nudge_cfg)
     global_prior_scores = dict(zip(global_prior_df["Team"], global_prior_df["Calibrated Score"]))
+    primary_payload = build_primary_ranking_payload(
+        teams, model_orders, stats, h2h, sos, team_imputation,
+        ensemble_base_weights=ensemble_weights_cfg,
+        win_model_cap=win_model_cap_cfg,
+        ensemble_breadth_cfg=ensemble_breadth_cfg,
+        expert_nudge_cfg=expert_nudge_cfg
+    )
 
     # Compute sectional rankings
     sectional_rankings, sectional_order, sectional_breakdowns = compute_sectional_rankings(
@@ -1830,9 +1864,8 @@ def main():
             metric_label = "Elo"
             metric_format = CHART_FORMATS["float1"]
         elif metric_lens == "Ensemble":
-            dashboard_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg, expert_nudge_cfg=expert_nudge_cfg)
-            dashboard_order = dashboard_df["Team"].tolist()
-            dashboard_metric_values = dict(zip(dashboard_df["Team"], dashboard_df["Calibrated Score"]))
+            dashboard_order = primary_payload["ordered_teams"]
+            dashboard_metric_values = primary_payload["score_lookup"]
             metric_label = "Ensemble"
             metric_format = CHART_FORMATS["float3"]
         else:
@@ -1895,7 +1928,7 @@ def main():
             st.info("No weekly rank history available.")
         return
 
-    section_defaults = {"Team Profile": "Profile", "Rank Tables": "Win%", "Sectionals": "Sectionals"}
+    section_defaults = {"Team Profile": "Profile", "Rank Tables": "Avg", "Sectionals": "Sectionals"}
     all_sections = ["Profile","Win%","Pythag","AdjPyth","Elo","BCAR","Avg","Sectionals"]
     available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Win%","Pythag","AdjPyth","Elo","BCAR","Avg"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
     default_section = section_defaults.get(current_nav, "Profile")
@@ -2006,10 +2039,9 @@ def main():
             if highlight_estimated_games:
                 matchup_view["Badge"] = matchup_view["Inferred"].map(lambda x: "🧩" if x else "")
             st.dataframe(matchup_view, use_container_width=True)
-        st.write(f"{opp} Ranks: Win% #{win_ord.index(opp)+1 if opp in win_ord else '-'} (SOS {sos[opp]:.3f}), "
-                 f"Pyth #{py_ord.index(opp)+1 if opp in py_ord else '-'} (SOS {sos[opp]:.3f}), "
-                 f"AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'} (SOS {sos[opp]:.3f}), "
-                 f"Elo #{elo_ord.index(opp)+1 if opp in elo_ord else '-'}")
+        st.write(f"{opp} default rank #{primary_payload['rank_lookup'].get(opp, '-')} (Ensemble {primary_payload['score_lookup'].get(opp, 0.0):.3f}) | "
+                 f"legacy Win% #{win_ord.index(opp)+1 if opp in win_ord else '-'}, "
+                 f"Pyth #{py_ord.index(opp)+1 if opp in py_ord else '-'}, AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'}, Elo #{elo_ord.index(opp)+1 if opp in elo_ord else '-'}")
         st.markdown("**Common Opponents**")
         com = set(stats[te]['opponents']) & set(stats[opp]['opponents'])
         if com:
@@ -2124,19 +2156,16 @@ def main():
         else:
             show_cols = ["Rank", "Team", "BCAR Score", "Strength", "Strength 95% Low", "Strength 95% High", "SOS_BCAR", "SOV_BCAR", "BL_BCAR", "Resume_BCAR", "Confidence"]
             st.dataframe(bcar_table[show_cols], use_container_width=True, hide_index=True)
-            bcar_rank_lookup = {row["Team"]: int(row["Rank"]) for _, row in bcar_table.iterrows()}
-            st.caption(f"Context overlay: {te} rank #{bcar_rank_lookup.get(te, '-')} vs {opp} rank #{bcar_rank_lookup.get(opp, '-')}")
+            st.caption(f"Context overlay: {te} rank #{primary_payload['rank_lookup'].get(te, '-')} vs {opp} rank #{primary_payload['rank_lookup'].get(opp, '-')} (primary)")
     
     if selected_section == "Avg":
         st.subheader("Rankings by Calibrated Ensemble")
-        eligible_teams = [t for t in teams if stats[t]['games'] >= thr and t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
-        df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg, expert_nudge_cfg=expert_nudge_cfg)
+        df_avg = primary_payload["table"]
         st.dataframe(df_avg[[
             "Rank", "Team", "Calibrated Score", "Ordinal Avg (Debug)", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"
         ]])
         if opp:
-            avg_rank_lookup = {row["Team"]: int(row["Rank"]) for _, row in df_avg.iterrows()}
-            st.caption(f"Context overlay: {te} rank #{avg_rank_lookup.get(te, '-')} vs {opp} rank #{avg_rank_lookup.get(opp, '-')}")
+            st.caption(f"Context overlay: {te} rank #{primary_payload['rank_lookup'].get(te, '-')} vs {opp} rank #{primary_payload['rank_lookup'].get(opp, '-')}")
         st.caption("Per-team contribution breakdown (normalized model outputs × reliability-weighted contributions).")
         st.dataframe(df_avg[[
             "Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "Elo %tile",
