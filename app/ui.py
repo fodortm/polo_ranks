@@ -415,26 +415,7 @@ def render_dashboard_metric_charts(stats, adj_vals, elo, sos, min_games_default=
             )
             st.altair_chart((chart3.add_params(hover_sel)).properties(height=420), use_container_width=True)
 
-    st.subheader("Custom 4-metric chart")
-    metric_options = {
-        "Win %": "WinPct", "Adjusted Pyth": "AdjPyth", "Elo": "Elo", "SOS": "SOS",
-        "Goals For / Game": "GoalsFor", "Goals Against / Game": "GoalsAgainst", "Games": "Games"
-    }
-    cx, cy, cs = st.columns(3)
-    x_metric = cx.selectbox("X-axis", list(metric_options.keys()), index=0, key="dashboard_custom_x")
-    y_metric = cy.selectbox("Y-axis", list(metric_options.keys()), index=1, key="dashboard_custom_y")
-    size_metric = cs.selectbox("Size", list(metric_options.keys()), index=2, key="dashboard_custom_size")
-    custom_df = gpg_df.copy()
-    c_top_n = st.slider("Custom chart: teams shown", min_value=5, max_value=len(custom_df), value=min(20, len(custom_df)), key="dashboard_custom_top_n")
-    c_metric = st.selectbox("Custom chart: ranking metric", ["Win %", "Adjusted Pyth", "Elo", "SOS"], key="dashboard_custom_rank_metric")
-    c_time = st.selectbox("Custom chart: time frame", ["Current season"], key="dashboard_custom_time")
-    rank_key = metric_options[c_metric]
-    custom_df = custom_df.sort_values(rank_key, ascending=False).head(c_top_n)
-    chart4 = alt.Chart(custom_df).mark_circle().encode(
-        x=alt.X(f"{metric_options[x_metric]}:Q", title=x_metric), y=alt.Y(f"{metric_options[y_metric]}:Q", title=y_metric),
-        size=alt.Size(f"{metric_options[size_metric]}:Q"), color=sos_color, opacity=base_opacity, tooltip=["Team:N"]
-    )
-    st.altair_chart((chart4.add_params(hover_sel)).properties(height=420), use_container_width=True)
+
 
 
 def build_rank_overview_chart(top_n_df, metric_label, metric_format):
