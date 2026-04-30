@@ -726,6 +726,116 @@ def compute_adjusted_pythag(games, stats, exp=2, k=10, x0=0.5, imputed_mode="ful
         adj[t] = agf**exp/(agf**exp + aga**exp) if agf+aga>0 else 0
     return adj
 
+@st.cache_data
+def compute_confidence_adjusted_bayesian_rank(
+    games,
+    stats,
+    tau0=1.0,
+    m_cap=4,
+    resume_a=0.35,
+    resume_b=0.65,
+    resume_c=0.80,
+    beta=0.50,
+    lambda_max=0.30,
+    n_star=10.0,
+):
+    teams = sorted(stats.keys())
+    if not teams:
+        return {"order": [], "table": pd.DataFrame()}
+
+    team_ix = {t: i for i, t in enumerate(teams)}
+    offense = {t: 0.0 for t in teams}
+    defense = {t: 0.0 for t in teams}
+    team_games = defaultdict(int)
+    opp_set = {t: set() for t in teams}
+
+    # Penalized iterative offense/defense fit (fast approximation to Bayesian shrinkage)
+    for _ in range(20):
+        new_offense = {}
+        new_defense = {}
+        for t in teams:
+            gf_terms, ga_terms = [], []
+            for r in games.itertuples():
+                if r.team1 == t:
+                    gf_terms.append(math.log1p(float(r.score1)) - defense[r.team2])
+                    ga_terms.append(math.log1p(float(r.score2)) - offense[r.team2])
+                    team_games[t] += 1
+                    opp_set[t].add(r.team2)
+                elif r.team2 == t:
+                    gf_terms.append(math.log1p(float(r.score2)) - defense[r.team1])
+                    ga_terms.append(math.log1p(float(r.score1)) - offense[r.team1])
+                    team_games[t] += 1
+                    opp_set[t].add(r.team1)
+            lam = tau0 ** 2
+            new_offense[t] = sum(gf_terms) / (len(gf_terms) + lam) if gf_terms else 0.0
+            new_defense[t] = sum(ga_terms) / (len(ga_terms) + lam) if ga_terms else 0.0
+        offense, defense = new_offense, new_defense
+
+    strength = {t: offense[t] - defense[t] for t in teams}
+    s_vals = pd.Series(strength)
+    s_med = float(s_vals.median())
+    s_sd = max(float(s_vals.std(ddof=0)), 1e-6)
+    sigma = {t: tau0 / math.sqrt(max(1, stats[t]["games"])) for t in teams}
+    certainty = {t: max(0.0, 1.0 - (sigma[t] ** 2 / max(tau0 ** 2, 1e-6))) for t in teams}
+    quality = {t: 1.0 / (1.0 + math.exp(-(strength[t] - s_med) / s_sd)) for t in teams}
+
+    def margin_cap(m):
+        return math.log1p(min(abs(float(m)), m_cap)) / math.log1p(m_cap)
+
+    rows = []
+    for t in teams:
+        g = stats[t]["games"]
+        lam_n = lambda_max * (1.0 - math.exp(-(g / max(n_star, 1e-6))))
+        sos_num = sos_den = sov_num = sov_den = bl_num = bl_den = 0.0
+        for r in games.itertuples():
+            if r.team1 == t:
+                opp, m = r.team2, float(r.score1) - float(r.score2)
+            elif r.team2 == t:
+                opp, m = r.team1, float(r.score2) - float(r.score1)
+            else:
+                continue
+            c = certainty.get(opp, 0.0)
+            w = 1.0
+            sos_num += w * c * strength.get(opp, 0.0)
+            sos_den += w * c
+            if m > 0:
+                sov_num += w * c * quality.get(opp, 0.5) * margin_cap(m)
+                sov_den += w * c
+            elif m < 0:
+                bl_num += w * c * (1.0 - quality.get(opp, 0.5)) * margin_cap(m)
+                bl_den += w * c
+        sos_i = sos_num / sos_den if sos_den else 0.0
+        sov_i = sov_num / sov_den if sov_den else 0.0
+        bl_i = bl_num / bl_den if bl_den else 0.0
+        resume_i = resume_a * sos_i + resume_b * sov_i - resume_c * bl_i
+        rows.append({
+            "Team": t,
+            "Strength": strength[t],
+            "Sigma": sigma[t],
+            "SOS_BCAR": sos_i,
+            "SOV_BCAR": sov_i,
+            "BL_BCAR": bl_i,
+            "Resume_BCAR": resume_i,
+            "Lambda_BCAR": lam_n,
+            "Games": g,
+            "UniqueOpp": len(opp_set[t]),
+            "ModelConf": max(0.0, min(1.0, 1.0 - (sigma[t] ** 2 / max(tau0 ** 2, 1e-6)))),
+            "SchedConf": sos_den / max(g, 1),
+            "Coverage": (g / (g + 6.0)) * (len(opp_set[t]) / (len(opp_set[t]) + 4.0)),
+        })
+    df = pd.DataFrame(rows)
+    for col in ["Strength", "Resume_BCAR", "Sigma"]:
+        sd = float(df[col].std(ddof=0))
+        df[f"Z_{col}"] = (df[col] - float(df[col].mean())) / (sd if sd > 1e-9 else 1.0)
+    df["BCAR Score"] = df["Z_Strength"] + df["Lambda_BCAR"] * df["Z_Resume_BCAR"] - beta * df["Z_Sigma"]
+    df["Confidence"] = 100 * (df["ModelConf"] * df["SchedConf"].clip(lower=0) * df["Coverage"]).clip(lower=0) ** (1 / 3)
+    df["Strength 95% Low"] = df["Strength"] - 1.96 * df["Sigma"]
+    df["Strength 95% High"] = df["Strength"] + 1.96 * df["Sigma"]
+    df = df.sort_values("BCAR Score", ascending=False).reset_index(drop=True)
+    df["Rank"] = df.index + 1
+    order = df["Team"].tolist()
+    return {"order": order, "table": df}
+
 # ---------------- Rankings ---------------- #
 @st.cache_data
 def rank_win_pct(stats,h2h):
@@ -1611,6 +1721,9 @@ def main():
     adj_ord = [t for t in adj_ord if stats[t]['games']>=thr]
     elo_ord = [t for t in elo_ord if stats[t]['games']>=thr]
     teams    = sorted(stats.keys())
+    bcar_bundle = compute_confidence_adjusted_bayesian_rank(games_inferred, stats)
+    bcar_ord = [t for t in bcar_bundle["order"] if stats[t]["games"] >= thr]
+    bcar_table = bcar_bundle["table"][bcar_bundle["table"]["Team"].isin(bcar_ord)].reset_index(drop=True)
     model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
     global_prior_teams = [t for t in teams if t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
     global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg, expert_nudge_cfg=expert_nudge_cfg)
@@ -1778,8 +1891,8 @@ def main():
         return
 
     section_defaults = {"Team Profile": "Profile", "Rank Tables": "Win%", "Sectionals": "Sectionals"}
-    all_sections = ["Profile","Win%","Pythag","AdjPyth","Elo","Avg","Sectionals"]
-    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Win%","Pythag","AdjPyth","Elo","Avg"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
+    all_sections = ["Profile","Win%","Pythag","AdjPyth","Elo","BCAR","Avg","Sectionals"]
+    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Win%","Pythag","AdjPyth","Elo","BCAR","Avg"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
     default_section = section_defaults.get(current_nav, "Profile")
     if "content_section" not in st.session_state or st.session_state["content_section"] not in available_sections:
         st.session_state["content_section"] = default_section if default_section in available_sections else available_sections[0]
@@ -1998,6 +2111,16 @@ def main():
         st.dataframe(build_why_rank_rows(elo_ord, elo, stats, h2h, sos, team_imputation))
         chart_data=pd.DataFrame({'Team':elo_ord,'Elo':[elo[t] for t in elo_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Elo'),use_container_width=True)
+
+    if selected_section == "BCAR":
+        st.subheader("Rankings by BCAR (Bayesian Confidence-Adjusted Ranking)")
+        if bcar_table.empty:
+            st.info("No BCAR rows available for the current minimum-games threshold.")
+        else:
+            show_cols = ["Rank", "Team", "BCAR Score", "Strength", "Strength 95% Low", "Strength 95% High", "SOS_BCAR", "SOV_BCAR", "BL_BCAR", "Resume_BCAR", "Confidence"]
+            st.dataframe(bcar_table[show_cols], use_container_width=True, hide_index=True)
+            bcar_rank_lookup = {row["Team"]: int(row["Rank"]) for _, row in bcar_table.iterrows()}
+            st.caption(f"Context overlay: {te} rank #{bcar_rank_lookup.get(te, '-')} vs {opp} rank #{bcar_rank_lookup.get(opp, '-')}")
     
     if selected_section == "Avg":
         st.subheader("Rankings by Calibrated Ensemble")
