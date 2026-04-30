@@ -25,7 +25,7 @@ SEMANTIC_COLORS = {
 TYPOGRAPHY_SCALE = {"title": "##", "subtitle": "####"}
 SPACING_SCALE = {"section": "<div style='margin-top: 1.25rem;'></div>", "panel": "<div style='margin-top: 0.75rem;'></div>"}
 RANK_TIER_COLORS = {"elite": "#1D4ED8", "contender": "#93C5FD", "support": "#9CA3AF"}
-CHART_FORMATS = {"pct3": ".3f", "float2": ".2f", "int0": ".0f"}
+CHART_FORMATS = {"pct3": ".3f", "float3": ".3f", "float2": ".2f", "float1": ".1f", "int0": ".0f"}
 
 def render_typography(level, text):
     if level in TYPOGRAPHY_SCALE:
@@ -348,6 +348,69 @@ def compute_expert_fit(method_order, expert_order, top_n=25):
         ],
     }
 
+
+
+
+def render_dashboard_metric_charts(stats, adj_vals, elo, sos, min_games_default=0):
+    st.markdown("### Metric-space charts")
+    max_games = max((sts["games"] for sts in stats.values()), default=1)
+    min_games_plot = st.slider("Minimum games", min_value=0, max_value=max_games, value=min_games_default, step=1, key="dashboard_3d_min_games")
+    team_search = st.text_input("Team search highlight", value="", key="dashboard_3d_search").strip().lower()
+    profile_df = build_team_profile_3metric_df(stats, adj_vals, elo, sos, min_games_plot)
+    if profile_df.empty:
+        st.info("No teams meet the current minimum games threshold.")
+        return
+    focus_options = ["(None)"] + sorted(profile_df["Team"].tolist())
+    focus_team = st.selectbox("Focus team", options=focus_options, index=0, key="dashboard_3d_focus_team")
+    profile_df["SearchHit"] = profile_df["Team"].str.lower().str.contains(team_search, regex=False) if team_search else False
+    profile_df["IsFocus"] = profile_df["Team"] == focus_team
+    profile_df["Highlight"] = profile_df["IsFocus"] | profile_df["SearchHit"]
+    elo_min, elo_max = float(profile_df["Elo"].min()), float(profile_df["Elo"].max())
+    profile_df["EloNorm"] = (profile_df["Elo"] - elo_min) / max(elo_max - elo_min, 1e-6)
+    sos_min, sos_max = float(profile_df["SOS"].min()), float(profile_df["SOS"].max())
+    hover_sel = alt.selection_point(fields=["Team"], on="mouseover", empty=True, name="team_hover")
+    base_opacity = alt.condition(hover_sel | alt.datum.Highlight, alt.value(1.0), alt.value(0.25))
+    sos_color = alt.Color("SOS:Q", scale=alt.Scale(domain=[sos_min, (sos_min + sos_max)/2.0, sos_max], range=["#B91C1C", "#FACC15", "#15803D"]))
+
+    st.subheader("Win% vs Adjusted Pythagorean")
+    chart1 = alt.Chart(profile_df).mark_circle().encode(
+        x=alt.X("WinPct:Q", title="Win %"), y=alt.Y("AdjPyth:Q", title="Adjusted Pythagorean"),
+        size=alt.Size("EloNorm:Q", scale=alt.Scale(domain=[0, 1], range=[40, 900])), color=sos_color, opacity=base_opacity,
+        tooltip=["Team:N", alt.Tooltip("WinPct:Q", format=".3f"), alt.Tooltip("AdjPyth:Q", format=".3f"), alt.Tooltip("Elo:Q", format=".1f"), alt.Tooltip("SOS:Q", format=".3f"), "Games:Q"]
+    )
+    st.altair_chart((chart1.add_params(hover_sel)).properties(height=420), use_container_width=True)
+
+    gpg_df = profile_df.copy()
+    gpg_df["GoalsFor"] = gpg_df["Team"].map(lambda t: stats[t]["gf"] / max(stats[t]["games"], 1))
+    gpg_df["GoalsAgainst"] = gpg_df["Team"].map(lambda t: stats[t]["ga"] / max(stats[t]["games"], 1))
+    st.subheader("Goals For vs Goals Against")
+    chart2 = alt.Chart(gpg_df).mark_circle().encode(
+        x=alt.X("GoalsFor:Q", title="Goals For / Game"), y=alt.Y("GoalsAgainst:Q", title="Goals Against / Game", scale=alt.Scale(reverse=True)),
+        size=alt.Size("EloNorm:Q", scale=alt.Scale(domain=[0, 1], range=[40, 900])), color=sos_color, opacity=base_opacity,
+        tooltip=["Team:N", alt.Tooltip("GoalsFor:Q", format=".2f"), alt.Tooltip("GoalsAgainst:Q", format=".2f"), alt.Tooltip("Elo:Q", format=".1f"), alt.Tooltip("SOS:Q", format=".3f"), "Games:Q"]
+    )
+    st.altair_chart((chart2.add_params(hover_sel)).properties(height=420), use_container_width=True)
+
+    st.subheader("Custom 4-metric chart")
+    metric_options = {
+        "Win %": "WinPct", "Adjusted Pyth": "AdjPyth", "Elo": "Elo", "SOS": "SOS",
+        "Goals For / Game": "GoalsFor", "Goals Against / Game": "GoalsAgainst", "Games": "Games"
+    }
+    cx, cy, cs = st.columns(3)
+    x_metric = cx.selectbox("X-axis", list(metric_options.keys()), index=0, key="dashboard_custom_x")
+    y_metric = cy.selectbox("Y-axis", list(metric_options.keys()), index=1, key="dashboard_custom_y")
+    size_metric = cs.selectbox("Size", list(metric_options.keys()), index=2, key="dashboard_custom_size")
+    custom_df = gpg_df.copy()
+    c_top_n = st.slider("Custom chart: teams shown", min_value=5, max_value=len(custom_df), value=min(20, len(custom_df)), key="dashboard_custom_top_n")
+    c_metric = st.selectbox("Custom chart: ranking metric", ["Win %", "Adjusted Pyth", "Elo", "SOS"], key="dashboard_custom_rank_metric")
+    c_time = st.selectbox("Custom chart: time frame", ["Current season"], key="dashboard_custom_time")
+    rank_key = metric_options[c_metric]
+    custom_df = custom_df.sort_values(rank_key, ascending=False).head(c_top_n)
+    chart3 = alt.Chart(custom_df).mark_circle().encode(
+        x=alt.X(f"{metric_options[x_metric]}:Q", title=x_metric), y=alt.Y(f"{metric_options[y_metric]}:Q", title=y_metric),
+        size=alt.Size(f"{metric_options[size_metric]}:Q"), color=sos_color, opacity=base_opacity, tooltip=["Team:N"]
+    )
+    st.altair_chart((chart3.add_params(hover_sel)).properties(height=420), use_container_width=True)
 
 
 def build_rank_overview_chart(top_n_df, metric_label, metric_format):
@@ -1618,8 +1681,7 @@ def main():
     # Tabs & content
     if current_nav == "Dashboard":
         render_typography("title", "Dashboard")
-        render_typography("subtitle", "League pulse in three visual bands")
-        render_typography("caption", "Read top-to-bottom: hero summary, core story visuals, then context + trust signals.")
+        render_typography("subtitle", "League pulse with interactive metric charts and rank trends")
 
         if "dashboard_top_n" not in st.session_state:
             st.session_state["dashboard_top_n"] = 10
@@ -1661,9 +1723,7 @@ def main():
             metric_label = "Win %"
             metric_format = CHART_FORMATS["pct3"]
 
-        # ---------------- Band A: Hero summary ---------------- #
         render_spacing("section")
-        render_typography("subtitle", "Band A · Hero summary")
         weekly_ranks = compute_weekly_rank_history(DATA_DIR)
         window_size = 4 if st.session_state["dashboard_time_window"] == "Last 4 weeks" else 999
         dashboard_vm = build_dashboard_view_model(
@@ -1681,9 +1741,7 @@ def main():
         kpi = dashboard_vm["kpi_payload"]
         render_dashboard_header_kpis(kpi, metric_lens, metric_format)
 
-        # ---------------- Band B: Core story visuals ---------------- #
         render_spacing("section")
-        render_typography("subtitle", "Band B · Core story visuals")
         b_left, b_right = st.columns([1.2, 1.0])
         with b_left:
             render_rank_overview_panel(dashboard_vm, metric_label, metric_format)
@@ -1691,9 +1749,7 @@ def main():
             render_trend_panel(dashboard_vm)
         render_movement_panel(dashboard_vm)
 
-        # ---------------- Band C: Context and trust ---------------- #
         render_spacing("section")
-        render_typography("subtitle", "Band C · Context and trust")
         c_left, c_mid, c_right = st.columns([1, 1, 1])
         with c_left:
             render_distribution_panel(dashboard_vm)
@@ -1702,12 +1758,28 @@ def main():
         with c_right:
             render_trust_imputation_panel(dashboard_vm)
 
-        st.info("Primary questions answered above: top team, trend direction, and biggest mover without scrolling.")
+        render_dashboard_metric_charts(stats, adj_vals, elo, sos, min_games_default=int(round(thr)))
+
+        st.subheader("Weekly rank trend")
+        trend_metric = st.selectbox("Trend metric", ["Win %", "Adjusted Pyth", "Elo", "Ensemble"], key="dashboard_weekly_metric")
+        trend_n = st.slider("Teams to show", min_value=5, max_value=max(5, len(dashboard_order)), value=min(12, len(dashboard_order)), key="dashboard_weekly_top_n")
+        trend_window = st.selectbox("Trend time frame", ["Last 4 weeks", "All"], key="dashboard_weekly_window")
+        weekly_all = compute_weekly_rank_history(DATA_DIR)
+        if not weekly_all.empty:
+            max_week = int(weekly_all["week_num"].max())
+            start_week = max(1, max_week - 3) if trend_window == "Last 4 weeks" else 1
+            pool = weekly_all[weekly_all["week_num"] >= start_week].copy()
+            focus_teams = dashboard_order[:min(trend_n, len(dashboard_order))]
+            pool = pool[pool["team"].isin(focus_teams)]
+            line = alt.Chart(pool).mark_line(point=True).encode(x=alt.X("week_num:Q", title="Week"), y=alt.Y("rank:Q", title="Rank", scale=alt.Scale(reverse=True)), color="team:N", tooltip=["team:N", "week_label:N", "rank:Q"]).properties(height=380)
+            st.altair_chart(line, use_container_width=True)
+        else:
+            st.info("No weekly rank history available.")
         return
 
     section_defaults = {"Team Profile": "Profile", "Rank Tables": "Win%", "Sectionals": "Sectionals"}
-    all_sections = ["Profile","Win%","Pythag","AdjPyth","Elo","Avg","3-Metric Plot","Sectionals"]
-    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Win%","Pythag","AdjPyth","Elo","Avg","3-Metric Plot"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
+    all_sections = ["Profile","Win%","Pythag","AdjPyth","Elo","Avg","Sectionals"]
+    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Win%","Pythag","AdjPyth","Elo","Avg"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
     default_section = section_defaults.get(current_nav, "Profile")
     if "content_section" not in st.session_state or st.session_state["content_section"] not in available_sections:
         st.session_state["content_section"] = default_section if default_section in available_sections else available_sections[0]
@@ -2020,151 +2092,6 @@ def main():
             disagreement_chart = alt.hconcat(disagreement_indicator, model_heatmap, spacing=8).resolve_scale(y="shared")
             st.altair_chart(disagreement_chart.properties(height=360), use_container_width=True)
 
-    if selected_section == "3-Metric Plot":
-        st.subheader("Team Profile Space: Win% vs Adjusted Pythagorean (Elo size, SOS color)")
-        st.caption("Elo is encoded by size (third-axis proxy) and Strength of Schedule (SOS) is encoded by color (red = weaker, yellow = mid, green = harder).")
-        ctl1, ctl2 = st.columns([1, 1.5])
-        with ctl1:
-            st.caption("Encoding: Elo → size · SOS → color (red → yellow → green)")
-        with ctl2:
-            max_games = max(sts["games"] for sts in stats.values()) if stats else 1
-            min_games_plot = st.slider("Minimum games", min_value=0, max_value=max_games, value=int(round(thr)), step=1, key="profile3d_min_games")
-        team_search = st.text_input("Team search highlight", value="", key="profile3d_search").strip().lower()
-
-        profile_df = build_team_profile_3metric_df(stats, adj_vals, elo, sos, min_games_plot)
-        if profile_df.empty:
-            st.info("No teams meet the current minimum games threshold.")
-        else:
-            focus_options = ["(None)"] + sorted(profile_df["Team"].tolist())
-            focus_team = st.selectbox("Focus team", options=focus_options, index=0, key="profile3d_focus_team")
-            profile_df["SearchHit"] = profile_df["Team"].str.lower().str.contains(team_search, regex=False) if team_search else False
-            profile_df["IsFocus"] = profile_df["Team"] == focus_team
-            profile_df["Highlight"] = profile_df["IsFocus"] | profile_df["SearchHit"]
-            elo_min = float(profile_df["Elo"].min())
-            elo_max = float(profile_df["Elo"].max())
-            elo_span = max(elo_max - elo_min, 1e-6)
-            profile_df["EloNorm"] = (profile_df["Elo"] - elo_min) / elo_span
-            sos_min = float(profile_df["SOS"].min())
-            sos_max = float(profile_df["SOS"].max())
-
-            hover_sel = alt.selection_point(fields=["Team"], on="mouseover", empty=True, name="team_hover")
-            base_opacity = alt.condition(hover_sel | alt.datum.Highlight, alt.value(1.0), alt.value(0.25))
-
-            sos_color = alt.Color(
-                "SOS:Q",
-                scale=alt.Scale(
-                    domain=[sos_min, (sos_min + sos_max) / 2.0, sos_max],
-                    range=["#B91C1C", "#FACC15", "#15803D"],
-                ),
-                legend=alt.Legend(title=f"SOS ({sos_min:.3f}–{sos_max:.3f})"),
-            )
-            points = alt.Chart(profile_df).mark_circle().encode(
-                x=alt.X("WinPct:Q", title="Win %"),
-                y=alt.Y("AdjPyth:Q", title="Adjusted Pythagorean"),
-                size=alt.Size(
-                    "EloNorm:Q",
-                    legend=alt.Legend(title=f"Elo ({elo_min:.0f}–{elo_max:.0f})"),
-                    scale=alt.Scale(domain=[0, 1], range=[40, 900]),
-                ),
-                color=sos_color,
-                opacity=base_opacity,
-                tooltip=[
-                    "Team:N",
-                    alt.Tooltip("WinPct:Q", format=".3f"),
-                    alt.Tooltip("AdjPyth:Q", format=".3f"),
-                    alt.Tooltip("Elo:Q", format=".1f"),
-                    "Games:Q",
-                    alt.Tooltip("SOS:Q", format=".3f"),
-                    "WinRank:Q",
-                    "AdjRank:Q",
-                    "EloRank:Q",
-                ],
-            )
-
-            labels = alt.Chart(profile_df[profile_df["IsFocus"]]).mark_text(
-                align="left", baseline="bottom", dx=6, dy=-4, color=SEMANTIC_COLORS["neutral"]
-            ).encode(
-                x="WinPct:Q",
-                y="AdjPyth:Q",
-                text="Team:N",
-            )
-
-            chart = (points.add_params(hover_sel) + labels).properties(height=460)
-            st.altair_chart(chart, use_container_width=True)
-
-            gpg_df = profile_df.copy()
-            gpg_df["GoalsFor"] = gpg_df["Team"].map(lambda t: stats[t]["gf"] / max(stats[t]["games"], 1))
-            gpg_df["GoalsAgainst"] = gpg_df["Team"].map(lambda t: stats[t]["ga"] / max(stats[t]["games"], 1))
-            st.subheader("Team Profile Space: Goals For vs Goals Against (inverted Y)")
-            st.caption("Elo is encoded by size and SOS by color; lower Goals Against appears higher due inverted y-axis.")
-            gpg_points = alt.Chart(gpg_df).mark_circle().encode(
-                x=alt.X("GoalsFor:Q", title="Goals For / Game"),
-                y=alt.Y("GoalsAgainst:Q", title="Goals Against / Game", scale=alt.Scale(reverse=True)),
-                size=alt.Size(
-                    "EloNorm:Q",
-                    legend=alt.Legend(title=f"Elo ({elo_min:.0f}–{elo_max:.0f})"),
-                    scale=alt.Scale(domain=[0, 1], range=[40, 900]),
-                ),
-                color=sos_color,
-                opacity=base_opacity,
-                tooltip=[
-                    "Team:N",
-                    alt.Tooltip("GoalsFor:Q", format=".2f"),
-                    alt.Tooltip("GoalsAgainst:Q", format=".2f"),
-                    alt.Tooltip("Elo:Q", format=".1f"),
-                    alt.Tooltip("SOS:Q", format=".3f"),
-                    "Games:Q",
-                ],
-            )
-            gpg_labels = alt.Chart(gpg_df[gpg_df["IsFocus"]]).mark_text(
-                align="left", baseline="bottom", dx=6, dy=-4, color=SEMANTIC_COLORS["neutral"]
-            ).encode(
-                x="GoalsFor:Q",
-                y="GoalsAgainst:Q",
-                text="Team:N",
-            )
-            st.altair_chart((gpg_points.add_params(hover_sel) + gpg_labels).properties(height=460), use_container_width=True)
-        st.markdown("### Expert Fit")
-        illpolo_order = parse_expert_order_text(illpolo_text)
-        maxpreps_order = parse_expert_order_text(maxpreps_text)
-        if not illpolo_order and not maxpreps_order:
-            st.info("Paste Illpolo and/or MaxPreps orders in the sidebar to compute expert-fit metrics after each parameter tweak.")
-        else:
-            method_orders = {
-                "Win": win_ord,
-                "Pyth": py_ord,
-                "AdjPyth": adj_ord,
-                "Elo": elo_ord,
-                "Ensemble": df_avg["Team"].tolist(),
-            }
-            expert_orders = {
-                "Illpolo": illpolo_order,
-                "MaxPreps": maxpreps_order,
-            }
-            report_rows = []
-            for method_name, method_order in method_orders.items():
-                row = {"Method": method_name}
-                for expert_name, expert_order in expert_orders.items():
-                    if expert_order:
-                        fit = compute_expert_fit(method_order, expert_order, top_n=25)
-                        row[f"{expert_name} MAE (Top25 overlap)"] = round(fit["mean_abs_rank_error"], 2) if fit["mean_abs_rank_error"] is not None else None
-                        row[f"{expert_name} Top10 overlap"] = fit["top10_overlap_count"]
-                        row[f"{expert_name} Top25 overlap"] = fit["top25_overlap_count"]
-                report_rows.append(row)
-            st.dataframe(pd.DataFrame(report_rows))
-            with st.expander("Detailed per-team rank deltas (Top 25 overlap only)", expanded=False):
-                for expert_name, expert_order in expert_orders.items():
-                    if not expert_order:
-                        continue
-                    st.markdown(f"#### {expert_name}")
-                    for method_name, method_order in method_orders.items():
-                        fit = compute_expert_fit(method_order, expert_order, top_n=25)
-                        st.markdown(f"**{method_name}**")
-                        if fit["deltas"]:
-                            st.dataframe(pd.DataFrame(fit["deltas"]))
-                        else:
-                            st.caption("No Top 25 overlap with this expert list.")
-    
     if selected_section == "Sectionals":
         st.subheader("Sectional Rankings")
         
