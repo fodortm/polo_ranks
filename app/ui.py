@@ -153,6 +153,96 @@ def compute_weekly_rank_history(data_dir=DATA_DIR):
             rank_rows.append({"team": team, "rank": rank, "week_num": week_num, "week_label": week_label})
     return pd.DataFrame(rank_rows)
 
+
+
+def build_dashboard_view_model(stats, win_ord, games_inferred, weekly_ranks, window_size=3, top_n_rank=12, trend_top_n=8, movement_top_n=8):
+    """Build all dashboard-ready datasets from a single shared computation path."""
+    stats = stats or {}
+    win_ord = win_ord or []
+    games_inferred = games_inferred if games_inferred is not None else pd.DataFrame()
+    weekly_ranks = weekly_ranks if weekly_ranks is not None else pd.DataFrame()
+
+    top_team = win_ord[0] if win_ord else None
+    top_team_win = stats.get(top_team, {}).get("win_pct") if top_team else None
+    total_games = int(len(games_inferred))
+    scored_results = int(games_inferred["score1"].notna().sum()) if "score1" in games_inferred else 0
+    inferred_results = int(games_inferred.get("is_imputed", pd.Series(False, index=games_inferred.index)).fillna(False).sum()) if total_games else 0
+
+    biggest_riser_label = "N/A"
+    biggest_faller_label = "N/A"
+    history_window_df = pd.DataFrame(columns=["team", "rank", "week_num", "week_label"])
+    movement_rows = pd.DataFrame(columns=["team", "latest_rank", "prior_rank", "move", "direction"])
+    if not weekly_ranks.empty and all(c in weekly_ranks.columns for c in ["team", "rank", "week_num", "week_label"]):
+        max_week = int(weekly_ranks["week_num"].max())
+        summary_start_week = max(1, max_week - max(window_size - 1, 0))
+        history_window_df = weekly_ranks[weekly_ranks["week_num"] >= summary_start_week].copy()
+
+        summary_stats = []
+        for team, grp in history_window_df.groupby("team"):
+            grp = grp.sort_values("week_num")
+            if len(grp) >= 2:
+                rank_change = int(grp["rank"].iloc[-1] - grp["rank"].iloc[0])
+                summary_stats.append({"team": team, "rank_change": rank_change})
+        if summary_stats:
+            summary_rank = pd.DataFrame(summary_stats)
+            biggest_riser = summary_rank.sort_values("rank_change").iloc[0]
+            biggest_faller = summary_rank.sort_values("rank_change", ascending=False).iloc[0]
+            biggest_riser_label = f"{biggest_riser['team']} ({abs(int(biggest_riser['rank_change']))})"
+            biggest_faller_label = f"{biggest_faller['team']} ({abs(int(biggest_faller['rank_change']))})"
+
+        latest_week = int(weekly_ranks["week_num"].max())
+        prior_week = max(1, latest_week - 1)
+        latest_df = weekly_ranks[weekly_ranks["week_num"] == latest_week][["team", "rank"]].rename(columns={"rank": "latest_rank"})
+        prior_df = weekly_ranks[weekly_ranks["week_num"] == prior_week][["team", "rank"]].rename(columns={"rank": "prior_rank"})
+        movement_rows = latest_df.merge(prior_df, on="team", how="left")
+        movement_rows["move"] = movement_rows["prior_rank"] - movement_rows["latest_rank"]
+        movement_rows["direction"] = movement_rows["move"].apply(lambda m: "Riser" if m > 0 else ("Faller" if m < 0 else "Flat"))
+        movement_rows = movement_rows.sort_values(["move", "latest_rank"], ascending=[False, True]).head(movement_top_n)
+
+    current_rank_table = pd.DataFrame([
+        {"Rank": i + 1, "Team": team, "Win %": stats.get(team, {}).get("win_pct", 0.0)}
+        for i, team in enumerate(win_ord[: min(top_n_rank, len(win_ord))])
+    ])
+    top_teams = win_ord[:min(trend_top_n, len(win_ord))]
+    trend_pool = history_window_df[history_window_df["team"].isin(top_teams)].copy() if not history_window_df.empty else pd.DataFrame(columns=["team", "rank", "week_num", "week_label"])
+
+    dist_df = pd.DataFrame({"Team": list(stats.keys()), "Win %": [stats[t]["win_pct"] for t in stats]})
+    offense_defense_df = pd.DataFrame({
+        "Team": list(stats.keys()),
+        "Offense (GPG For)": [stats[t]["gf"] / max(stats[t]["games"], 1) for t in stats],
+        "Defense (GPG Against)": [stats[t]["ga"] / max(stats[t]["games"], 1) for t in stats],
+    })
+
+    imputed_pct = (inferred_results / total_games) if total_games else 0.0
+    trust_level = "High" if imputed_pct <= 0.2 else ("Moderate" if imputed_pct <= 0.4 else "Watchlist")
+
+    return {
+        "kpi_payload": {
+            "top_team": top_team or "N/A",
+            "top_team_win": top_team_win,
+            "biggest_riser_label": biggest_riser_label,
+            "biggest_faller_label": biggest_faller_label,
+            "total_games": total_games,
+            "scored_results": scored_results,
+            "inferred_results": inferred_results,
+        },
+        "current_rank_table": current_rank_table,
+        "windowed_rank_history": trend_pool,
+        "rank_movement_table": movement_rows,
+        "distribution_dataset": dist_df,
+        "offense_defense_dataset": offense_defense_df,
+        "trust_metrics": {
+            "trust_level": trust_level,
+            "imputed_pct": imputed_pct,
+            "parsed_games": total_games,
+            "team_count": len(stats),
+            "confidence_progress": min(1.0, max(0.0, 1.0 - imputed_pct)),
+        },
+        "imputation_impact_dataset": pd.DataFrame([
+            {"Category": "Parsed", "Count": scored_results},
+            {"Category": "Inferred", "Count": inferred_results},
+        ]),
+    }
 def parse_scores_text(text):
     records = []
     for line in text.splitlines():
@@ -1395,43 +1485,22 @@ def main():
 
         # ---------------- Band A: Hero summary ---------------- #
         st.markdown("### Band A · Hero summary")
-        top_team = win_ord[0] if win_ord else "N/A"
-        top_team_win = stats[top_team]["win_pct"] if top_team in stats else None
-        scored_results = int(games_inferred["score1"].notna().sum())
-        inferred_results = int(games_inferred.get("is_imputed", pd.Series(False, index=games_inferred.index)).fillna(False).sum())
-
-        biggest_riser_label = "N/A"
-        biggest_faller_label = "N/A"
         weekly_ranks = compute_weekly_rank_history(DATA_DIR)
-        if not weekly_ranks.empty:
-            max_week = int(weekly_ranks["week_num"].max())
-            summary_start_week = max(1, max_week - 2)
-            summary_df = weekly_ranks[weekly_ranks["week_num"] >= summary_start_week].copy()
-            summary_stats = []
-            for team, grp in summary_df.groupby("team"):
-                grp = grp.sort_values("week_num")
-                if len(grp) >= 2:
-                    rank_change = int(grp["rank"].iloc[-1] - grp["rank"].iloc[0])
-                    summary_stats.append({"team": team, "rank_change": rank_change})
-            if summary_stats:
-                summary_rank = pd.DataFrame(summary_stats)
-                biggest_riser = summary_rank.sort_values("rank_change").iloc[0]
-                biggest_faller = summary_rank.sort_values("rank_change", ascending=False).iloc[0]
-                biggest_riser_label = f"{biggest_riser['team']} ({abs(int(biggest_riser['rank_change']))})"
-                biggest_faller_label = f"{biggest_faller['team']} ({abs(int(biggest_faller['rank_change']))})"
+        dashboard_vm = build_dashboard_view_model(stats, win_ord, games_inferred, weekly_ranks)
+        kpi = dashboard_vm["kpi_payload"]
 
         hero_cols = st.columns(6)
-        hero_cols[0].metric("Current #1", top_team, delta=(f"Win% {top_team_win:.3f}" if top_team_win is not None else None))
+        hero_cols[0].metric("Current #1", kpi["top_team"], delta=(f"Win% {kpi['top_team_win']:.3f}" if kpi["top_team_win"] is not None else None))
         hero_cols[0].caption("Best current league position by Win% ranking.")
-        hero_cols[1].metric("Biggest riser", biggest_riser_label)
+        hero_cols[1].metric("Biggest riser", kpi["biggest_riser_label"])
         hero_cols[1].caption("Largest upward movement in the recent 3-week window.")
-        hero_cols[2].metric("Biggest faller", biggest_faller_label)
+        hero_cols[2].metric("Biggest faller", kpi["biggest_faller_label"])
         hero_cols[2].caption("Largest downward movement in the recent 3-week window.")
-        hero_cols[3].metric("Total games", len(games_inferred))
+        hero_cols[3].metric("Total games", kpi["total_games"])
         hero_cols[3].caption("All parsed matchups currently included in this model run.")
-        hero_cols[4].metric("Scored games", scored_results)
+        hero_cols[4].metric("Scored games", kpi["scored_results"])
         hero_cols[4].caption("Games with explicit scores recorded in source files.")
-        hero_cols[5].metric("Estimated games", inferred_results)
+        hero_cols[5].metric("Estimated games", kpi["inferred_results"])
         hero_cols[5].caption("Games where scores were inferred from model defaults.")
 
         # ---------------- Band B: Core story visuals ---------------- #
@@ -1439,21 +1508,21 @@ def main():
         b_left, b_right = st.columns([1.2, 1.0])
 
         with b_left:
-            top_n = min(12, len(win_ord))
-            top_n_df = pd.DataFrame(
-                [{"Rank": i + 1, "Team": team, "Win %": stats[team]["win_pct"]} for i, team in enumerate(win_ord[:top_n])]
-            )
-            rank_chart = alt.Chart(top_n_df).mark_bar(cornerRadiusEnd=4).encode(
+            top_n_df = dashboard_vm["current_rank_table"]
+            if top_n_df.empty:
+                st.info("No rank table available for the current filter window.")
+            else:
+                rank_chart = alt.Chart(top_n_df).mark_bar(cornerRadiusEnd=4).encode(
                 y=alt.Y("Team:N", sort="-x", title=None),
                 x=alt.X("Win %:Q", title="Win %"),
                 color=alt.condition(alt.datum.Rank == 1, alt.value("#1D4ED8"), alt.value("#93C5FD")),
                 tooltip=["Rank", "Team", alt.Tooltip("Win %:Q", format=".3f")],
-            ).properties(title=f"Current rank bar chart (Top {top_n})")
-            st.altair_chart(rank_chart, use_container_width=True)
+                ).properties(title=f"Current rank bar chart (Top {len(top_n_df)})")
+                st.altair_chart(rank_chart, use_container_width=True)
 
         with b_right:
-            if not weekly_ranks.empty:
-                trend_pool = weekly_ranks[weekly_ranks["team"].isin(win_ord[:min(8, len(win_ord))])].copy()
+            trend_pool = dashboard_vm["windowed_rank_history"]
+            if not trend_pool.empty:
                 trend_chart = alt.Chart(trend_pool).mark_line(point=True).encode(
                     x=alt.X("week_num:Q", title="Week"),
                     y=alt.Y("rank:Q", title="Rank (1 is best)", scale=alt.Scale(reverse=True)),
@@ -1464,16 +1533,8 @@ def main():
             else:
                 st.info("Weekly rank trajectory appears after multiple weekly files are available.")
 
-        movement_rows = []
-        if not weekly_ranks.empty:
-            latest_week = int(weekly_ranks["week_num"].max())
-            prior_week = max(1, latest_week - 1)
-            latest_df = weekly_ranks[weekly_ranks["week_num"] == latest_week][["team", "rank"]].rename(columns={"rank": "latest_rank"})
-            prior_df = weekly_ranks[weekly_ranks["week_num"] == prior_week][["team", "rank"]].rename(columns={"rank": "prior_rank"})
-            movement_df = latest_df.merge(prior_df, on="team", how="left")
-            movement_df["move"] = movement_df["prior_rank"] - movement_df["latest_rank"]
-            movement_df["direction"] = movement_df["move"].apply(lambda m: "Riser" if m > 0 else ("Faller" if m < 0 else "Flat"))
-            movement_rows = movement_df.sort_values(["move", "latest_rank"], ascending=[False, True]).head(8)
+        movement_rows = dashboard_vm["rank_movement_table"]
+        if not movement_rows.empty:
             movement_chart = alt.Chart(movement_rows).mark_bar(cornerRadiusTopLeft=4, cornerRadiusTopRight=4).encode(
                 x=alt.X("team:N", sort=None, title=None),
                 y=alt.Y("move:Q", title="Week-over-week rank change (+ is better)"),
@@ -1488,13 +1549,15 @@ def main():
                 use_container_width=True,
                 hide_index=True,
             )
+        else:
+            st.info("Rank movement appears when at least two ranking periods are available.")
 
         # ---------------- Band C: Context and trust ---------------- #
         st.markdown("### Band C · Context and trust")
         c_left, c_mid, c_right = st.columns([1, 1, 1])
 
         with c_left:
-            dist_df = pd.DataFrame({"Team": list(stats.keys()), "Win %": [stats[t]["win_pct"] for t in stats]})
+            dist_df = dashboard_vm["distribution_dataset"]
             dist_chart = alt.Chart(dist_df).mark_bar().encode(
                 x=alt.X("Win %:Q", bin=alt.Bin(maxbins=12), title="Win % bins"),
                 y=alt.Y("count():Q", title="Teams"),
@@ -1503,31 +1566,26 @@ def main():
             st.altair_chart(dist_chart, use_container_width=True)
 
         with c_mid:
-            scatter_df = pd.DataFrame(
-                {
-                    "Team": list(stats.keys()),
-                    "Offense (GPG For)": [stats[t]["gf"] / max(stats[t]["games"], 1) for t in stats],
-                    "Defense (GPG Against)": [stats[t]["ga"] / max(stats[t]["games"], 1) for t in stats],
-                }
-            )
+            scatter_df = dashboard_vm["offense_defense_dataset"]
             scatter_chart = alt.Chart(scatter_df).mark_circle(size=90, opacity=0.8).encode(
                 x=alt.X("Offense (GPG For):Q"),
                 y=alt.Y("Defense (GPG Against):Q", scale=alt.Scale(reverse=True)),
-                color=alt.condition(alt.datum.Team == top_team, alt.value("#1D4ED8"), alt.value("#9CA3AF")),
+                color=alt.condition(alt.datum.Team == kpi["top_team"], alt.value("#1D4ED8"), alt.value("#9CA3AF")),
                 tooltip=["Team", alt.Tooltip("Offense (GPG For):Q", format=".2f"), alt.Tooltip("Defense (GPG Against):Q", format=".2f")],
             ).properties(title="Offense vs defense scatter")
             st.altair_chart(scatter_chart, use_container_width=True)
 
         with c_right:
-            total_games = max(1, len(games_inferred))
-            imputed_pct = inferred_results / total_games
-            trust_level = "High" if imputed_pct <= 0.2 else ("Moderate" if imputed_pct <= 0.4 else "Watchlist")
+            trust_metrics = dashboard_vm["trust_metrics"]
+            impact_df = dashboard_vm["imputation_impact_dataset"]
             st.markdown("#### Data quality / trust capsule")
             st.caption("Quick confidence read before acting on rankings.")
-            st.metric("Trust level", trust_level)
-            st.progress(min(1.0, max(0.0, 1.0 - imputed_pct)))
-            st.caption(f"Inferred share: {imputed_pct:.1%} · Parsed games: {len(games_inferred)} · Teams: {len(teams)}")
+            st.metric("Trust level", trust_metrics["trust_level"])
+            st.progress(trust_metrics["confidence_progress"])
+            st.caption(f"Inferred share: {trust_metrics['imputed_pct']:.1%} · Parsed games: {trust_metrics['parsed_games']} · Teams: {trust_metrics['team_count']}")
             st.caption("Lower inferred share generally means more stable ranking confidence.")
+            if not impact_df.empty:
+                st.dataframe(impact_df, hide_index=True, use_container_width=True)
 
         st.info("Primary questions answered above: top team, trend direction, and biggest mover without scrolling.")
         return
