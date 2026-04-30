@@ -1362,9 +1362,10 @@ def _build_expert_nudge_lookup(teams, expert_nudge_cfg):
 
 def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, ensemble_base_weights=None, win_model_cap=None, ensemble_breadth_cfg=None, expert_nudge_cfg=None):
     base_weights = ensemble_base_weights or {
-        "Elo": 0.45,
-        "Pyth": 0.30,
-        "AdjPyth": 0.20,
+        "Elo": 0.40,
+        "BCAR": 0.25,
+        "AdjPyth": 0.18,
+        "Pyth": 0.12,
         "Win": 0.05,
     }
     model_pct = {name: rank_percentile_map(order) for name, order in orders.items()}
@@ -1380,6 +1381,7 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
             "Win": 0.50 + 0.50 * coverage_ratio,
             "Pyth": 0.50 + 0.50 * games_ratio,
             "AdjPyth": 0.65 + 0.35 * (1 - imp_ratio),
+            "BCAR": 0.60 + 0.40 * (1 - imp_ratio),
             "Elo": 0.50 + 0.50 * coverage_ratio,
         }
         weights = {
@@ -1403,6 +1405,7 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
             normalized_weights["Win"] * model_pct["Win"].get(team, 0.0)
             + normalized_weights["Pyth"] * model_pct["Pyth"].get(team, 0.0) * breadth_damping
             + normalized_weights["AdjPyth"] * model_pct["AdjPyth"].get(team, 0.0) * breadth_damping
+            + normalized_weights["BCAR"] * model_pct["BCAR"].get(team, 0.0)
             + normalized_weights["Elo"] * model_pct["Elo"].get(team, 0.0)
         )
         calibrated_score = weighted_sum if total_weight else 0.0
@@ -1410,6 +1413,7 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
             rank_lookup["Win"].get(team, len(orders["Win"]) + 1),
             rank_lookup["Pyth"].get(team, len(orders["Pyth"]) + 1),
             rank_lookup["AdjPyth"].get(team, len(orders["AdjPyth"]) + 1),
+            rank_lookup["BCAR"].get(team, len(orders["BCAR"]) + 1),
             rank_lookup["Elo"].get(team, len(orders["Elo"]) + 1),
         ]
         rows.append({
@@ -1422,18 +1426,22 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
             "Win Rank": ordinal_ranks[0],
             "Pyth Rank": ordinal_ranks[1],
             "AdjPyth Rank": ordinal_ranks[2],
-            "Elo Rank": ordinal_ranks[3],
+            "BCAR Rank": ordinal_ranks[3],
+            "Elo Rank": ordinal_ranks[4],
             "Win %tile": model_pct["Win"].get(team, 0.0),
             "Pyth %tile": model_pct["Pyth"].get(team, 0.0),
             "AdjPyth %tile": model_pct["AdjPyth"].get(team, 0.0),
+            "BCAR %tile": model_pct["BCAR"].get(team, 0.0),
             "Elo %tile": model_pct["Elo"].get(team, 0.0),
             "Weight Win": weights["Win"],
             "Weight Pyth": weights["Pyth"],
             "Weight AdjPyth": weights["AdjPyth"],
+            "Weight BCAR": weights["BCAR"],
             "Weight Elo": weights["Elo"],
             "Norm Weight Win": normalized_weights["Win"],
             "Norm Weight Pyth": normalized_weights["Pyth"],
             "Norm Weight AdjPyth": normalized_weights["AdjPyth"],
+            "Norm Weight BCAR": normalized_weights["BCAR"],
             "Norm Weight Elo": normalized_weights["Elo"],
             "Games Ratio": games_ratio,
             "Coverage Ratio": coverage_ratio,
@@ -1481,7 +1489,7 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
     return df[ordered]
 
 def build_primary_ranking_payload(teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=None, win_model_cap=None, ensemble_breadth_cfg=None, expert_nudge_cfg=None):
-    eligible_teams = [t for t in teams if t in model_orders["Win"] and t in model_orders["Pyth"] and t in model_orders["AdjPyth"] and t in model_orders["Elo"]]
+    eligible_teams = [t for t in teams if t in model_orders["Win"] and t in model_orders["Pyth"] and t in model_orders["AdjPyth"] and t in model_orders["BCAR"] and t in model_orders["Elo"]]
     ensemble_df = build_calibrated_ensemble(
         eligible_teams, model_orders, stats, h2h, sos, team_imputation,
         ensemble_base_weights=ensemble_base_weights,
@@ -1498,7 +1506,7 @@ def build_primary_ranking_payload(teams, model_orders, stats, h2h, sos, team_imp
         "component_diagnostics": {
             row["Team"]: {
                 "elo": row["Norm Weight Elo"] * row["Elo %tile"],
-                "bcar": 0.0,
+                "bcar": row["Norm Weight BCAR"] * row["BCAR %tile"],
                 "adj_pyth": row["Norm Weight AdjPyth"] * row["AdjPyth %tile"],
                 "pyth": row["Norm Weight Pyth"] * row["Pyth %tile"],
                 "win": row["Norm Weight Win"] * row["Win %tile"],
@@ -1525,9 +1533,10 @@ def main():
     current_nav = st.session_state["primary_nav"]
     config = load_model_config()
     ensemble_weights_cfg = {
-        "Elo": float(config.get("ensemble_weights", {}).get("Elo", 0.45)),
-        "Pyth": float(config.get("ensemble_weights", {}).get("Pyth", 0.30)),
-        "AdjPyth": float(config.get("ensemble_weights", {}).get("AdjPyth", 0.20)),
+        "Elo": float(config.get("ensemble_weights", {}).get("Elo", 0.40)),
+        "BCAR": float(config.get("ensemble_weights", {}).get("BCAR", 0.25)),
+        "AdjPyth": float(config.get("ensemble_weights", {}).get("AdjPyth", 0.18)),
+        "Pyth": float(config.get("ensemble_weights", {}).get("Pyth", 0.12)),
         "Win": float(config.get("ensemble_weights", {}).get("Win", 0.05)),
     }
     win_model_cap_cfg = config.get("win_model_cap", {
@@ -1756,8 +1765,8 @@ def main():
     bcar_bundle = compute_confidence_adjusted_bayesian_rank(games_inferred, stats)
     bcar_ord = [t for t in bcar_bundle["order"] if stats[t]["games"] >= thr]
     bcar_table = bcar_bundle["table"][bcar_bundle["table"]["Team"].isin(bcar_ord)].reset_index(drop=True)
-    model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
-    global_prior_teams = [t for t in teams if t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
+    model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "BCAR": bcar_ord, "Elo": elo_ord}
+    global_prior_teams = [t for t in teams if t in win_ord and t in py_ord and t in adj_ord and t in bcar_ord and t in elo_ord]
     global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg, expert_nudge_cfg=expert_nudge_cfg)
     global_prior_scores = dict(zip(global_prior_df["Team"], global_prior_df["Calibrated Score"]))
     primary_payload = build_primary_ranking_payload(
@@ -1928,9 +1937,9 @@ def main():
             st.info("No weekly rank history available.")
         return
 
-    section_defaults = {"Team Profile": "Profile", "Rank Tables": "Avg", "Sectionals": "Sectionals"}
-    all_sections = ["Profile","Win%","Pythag","AdjPyth","Elo","BCAR","Avg","Sectionals"]
-    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Win%","Pythag","AdjPyth","Elo","BCAR","Avg"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
+    section_defaults = {"Team Profile": "Profile", "Rank Tables": "Ensemble (Primary)", "Sectionals": "Sectionals"}
+    all_sections = ["Profile","Win%","Pythag","AdjPyth","Elo","BCAR","Ensemble (Primary)","Sectionals"]
+    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Win%","Pythag","AdjPyth","Elo","BCAR","Ensemble (Primary)"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
     default_section = section_defaults.get(current_nav, "Profile")
     if "content_section" not in st.session_state or st.session_state["content_section"] not in available_sections:
         st.session_state["content_section"] = default_section if default_section in available_sections else available_sections[0]
@@ -1947,7 +1956,7 @@ def main():
             'Win %':f"{stats[te]['win_pct']:.3f}",
             'SOS':f"{sos[te]:.3f}",
             'Rank Win%':ranks['win'],'Rank Pythag':ranks['py'],
-            'Rank Adj':ranks['adj'],'Rank Elo':ranks['elo'],'Avg':r_avg,
+            'Rank Adj':ranks['adj'],'Rank Elo':ranks['elo'],'Ensemble (Primary)':r_avg,
             'Imputed Share': f"{(team_imputation[te]['imputed']/team_imputation[te]['games'] if team_imputation[te]['games'] else 0):.1%}"
         },orient='index',columns=['Value']))
         st.caption(f"Shared context: {te} vs {opp}")
@@ -2158,8 +2167,8 @@ def main():
             st.dataframe(bcar_table[show_cols], use_container_width=True, hide_index=True)
             st.caption(f"Context overlay: {te} rank #{primary_payload['rank_lookup'].get(te, '-')} vs {opp} rank #{primary_payload['rank_lookup'].get(opp, '-')} (primary)")
     
-    if selected_section == "Avg":
-        st.subheader("Rankings by Calibrated Ensemble")
+    if selected_section == "Ensemble (Primary)":
+        st.subheader("Rankings by Ensemble (Primary)")
         df_avg = primary_payload["table"]
         st.dataframe(df_avg[[
             "Rank", "Team", "Calibrated Score", "Ordinal Avg (Debug)", "Direct H2H Tiebreak", "SOS Margin Tiebreak", "Stable Secondary"
@@ -2168,9 +2177,9 @@ def main():
             st.caption(f"Context overlay: {te} rank #{primary_payload['rank_lookup'].get(te, '-')} vs {opp} rank #{primary_payload['rank_lookup'].get(opp, '-')}")
         st.caption("Per-team contribution breakdown (normalized model outputs × reliability-weighted contributions).")
         st.dataframe(df_avg[[
-            "Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "Elo %tile",
-            "Norm Weight Win", "Norm Weight Pyth", "Norm Weight AdjPyth", "Norm Weight Elo",
-            "Weight Win", "Weight Pyth", "Weight AdjPyth", "Weight Elo",
+            "Team", "Win %tile", "Pyth %tile", "AdjPyth %tile", "BCAR %tile", "Elo %tile",
+            "Norm Weight Win", "Norm Weight Pyth", "Norm Weight AdjPyth", "Norm Weight BCAR", "Norm Weight Elo",
+            "Weight Win", "Weight Pyth", "Weight AdjPyth", "Weight BCAR", "Weight Elo",
             "Games Ratio", "Coverage Ratio", "Imputation Rate", "Resume Breadth Damping",
             "Unique Opponents", "Unique Opponent Ratio", "Breadth Raw Score"
         ]])
