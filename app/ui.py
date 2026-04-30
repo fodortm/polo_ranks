@@ -1914,11 +1914,19 @@ def main():
             profile_df["SearchHit"] = profile_df["Team"].str.lower().str.contains(team_search, regex=False) if team_search else False
             profile_df["IsFocus"] = profile_df["Team"] == focus_team
             profile_df["Highlight"] = profile_df["IsFocus"] | profile_df["SearchHit"]
+            elo_min = float(profile_df["Elo"].min())
+            elo_max = float(profile_df["Elo"].max())
+            elo_span = max(elo_max - elo_min, 1e-6)
+            profile_df["EloNorm"] = (profile_df["Elo"] - elo_min) / elo_span
 
             hover_sel = alt.selection_point(fields=["Team"], on="mouseover", empty=True, name="team_hover")
             base_opacity = alt.condition(hover_sel | alt.datum.Highlight, alt.value(1.0), alt.value(0.25))
 
-            color_encoding = alt.Color("Elo:Q", scale=alt.Scale(scheme="blues"), legend=alt.Legend(title="Elo"))
+            color_encoding = alt.Color(
+                "EloNorm:Q",
+                scale=alt.Scale(domain=[0, 1], scheme="viridis"),
+                legend=alt.Legend(title=f"Elo ({elo_min:.0f}–{elo_max:.0f})"),
+            )
             if elo_encoding_mode == "Color":
                 points = alt.Chart(profile_df).mark_circle(size=100).encode(
                     x=alt.X("WinPct:Q", title="Win %"),
@@ -1941,7 +1949,11 @@ def main():
                 points = alt.Chart(profile_df).mark_circle(color="#1D4ED8").encode(
                     x=alt.X("WinPct:Q", title="Win %"),
                     y=alt.Y("AdjPyth:Q", title="Adjusted Pythagorean"),
-                    size=alt.Size("Elo:Q", legend=alt.Legend(title="Elo"), scale=alt.Scale(range=[40, 700])),
+                    size=alt.Size(
+                        "EloNorm:Q",
+                        legend=alt.Legend(title=f"Elo ({elo_min:.0f}–{elo_max:.0f})"),
+                        scale=alt.Scale(domain=[0, 1], range=[40, 900]),
+                    ),
                     opacity=base_opacity,
                     tooltip=[
                         "Team:N",
