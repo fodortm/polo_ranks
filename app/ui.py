@@ -1590,10 +1590,17 @@ def main():
         st.info("Primary questions answered above: top team, trend direction, and biggest mover without scrolling.")
         return
 
-    tabs = st.tabs(["Profile","Win%","Pythag","AdjPyth","Elo","Avg","Sectionals","Changes"])
-    
-    # Profile tab
-    with tabs[0]:
+    section_defaults = {"Team Profile": "Profile", "Rank Tables": "Win%", "Sectionals": "Sectionals", "Model Diagnostics": "Changes"}
+    all_sections = ["Profile","Win%","Pythag","AdjPyth","Elo","Avg","Sectionals","Changes"]
+    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Win%","Pythag","AdjPyth","Elo","Avg","Changes"], "Sectionals": ["Sectionals"], "Model Diagnostics": ["Changes"]}.get(current_nav, all_sections)
+    default_section = section_defaults.get(current_nav, "Profile")
+    if "content_section" not in st.session_state or st.session_state["content_section"] not in available_sections:
+        st.session_state["content_section"] = default_section if default_section in available_sections else available_sections[0]
+    st.markdown("### Content")
+    st.radio("View", options=available_sections, horizontal=True, key="content_section")
+    selected_section = st.session_state["content_section"]
+
+    if selected_section == "Profile":
         st.subheader(f"Profile: {te}")
         st.table(pd.DataFrame.from_dict({
             'GPG For':f"{stats[te]['gf']/stats[te]['games']:.2f}",
@@ -1737,8 +1744,7 @@ def main():
               'Allowed':(r.score2 if r.team1==te else r.score1)} for r in games_inferred.itertuples() if r.team1==te or r.team2==te]
         st.dataframe(pd.DataFrame(sch))
     
-    # Win % tab
-    with tabs[1]:
+    if selected_section == "Win%":
         st.subheader(
             "Rankings by Win %",
             help="Tie-breaks: 1) Win%, 2) if exactly two teams are tied use head-to-head, 3) for ties of 3+ use mini-table (head-to-head points, then mini-table win%), 4) mini-table goal differential, 5) full-season goal differential."
@@ -1755,8 +1761,7 @@ def main():
         chart_data=pd.DataFrame({'Team':win_ord,'Win %':[stats[t]['win_pct'] for t in win_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Win %'), use_container_width=True)
     
-    # Pythagorean tab
-    with tabs[2]:
+    if selected_section == "Pythag":
         st.subheader("Rankings by Pythagorean")
         df_py=pd.DataFrame({'Team':py_ord,
                             'Exp %':[f"{py[t]:.3f}" for t in py_ord],
@@ -1770,8 +1775,7 @@ def main():
         chart_data=pd.DataFrame({'Team':py_ord,'Pythag':[py[t] for t in py_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Pythag'),use_container_width=True)
     
-    # Adjusted Pythagorean tab
-    with tabs[3]:
+    if selected_section == "AdjPyth":
         st.subheader("Rankings by Adjusted Pythagorean")
         df_adj=pd.DataFrame({'Team':adj_ord,
                              'AdjPyth %':[f"{adj_vals[t]:.3f}" for t in adj_ord],
@@ -1794,8 +1798,7 @@ def main():
         )
         st.altair_chart(scatter, use_container_width=True)
     
-    # Elo tab
-    with tabs[4]:
+    if selected_section == "Elo":
         st.subheader("Rankings by Elo")
         st.caption("Elo volatility has been intentionally reduced to better match expert poll stability.")
         df_elo=pd.DataFrame({'Team':elo_ord,
@@ -1809,8 +1812,7 @@ def main():
         chart_data=pd.DataFrame({'Team':elo_ord,'Elo':[elo[t] for t in elo_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Elo'),use_container_width=True)
     
-    # Average composite tab
-    with tabs[5]:
+    if selected_section == "Avg":
         st.subheader("Rankings by Calibrated Ensemble")
         eligible_teams = [t for t in teams if stats[t]['games'] >= thr and t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
         df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg, expert_nudge_cfg=expert_nudge_cfg)
@@ -1943,8 +1945,7 @@ def main():
                         else:
                             st.caption("No Top 25 overlap with this expert list.")
     
-    # Sectionals tab
-    with tabs[6]:
+    if selected_section == "Sectionals":
         st.subheader("Sectional Rankings")
         
         # Display sectional strength rankings
@@ -2041,7 +2042,7 @@ def main():
                     else:
                         st.write("No sectional common opponents")
 
-    with tabs[7]:
+    if selected_section == "Changes":
         st.subheader("What changed since last upload")
         if previous_orders is not None:
             current_orders = {"Win%": win_ord, "Pythag": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
