@@ -1894,16 +1894,15 @@ def main():
             st.altair_chart(disagreement_chart.properties(height=360), use_container_width=True)
 
     if selected_section == "3-Metric Plot":
-        st.subheader("Team Profile Space: Win% vs Adjusted Pythagorean vs Elo")
-        st.caption("Elo is encoded as a third-axis proxy using color or size.")
-        ctl1, ctl2, ctl3 = st.columns([1, 1, 1.5])
+        st.subheader("Team Profile Space: Win% vs Adjusted Pythagorean (Elo size, SOS color)")
+        st.caption("Elo is encoded by size (third-axis proxy) and Strength of Schedule (SOS) is encoded by color.")
+        ctl1, ctl2 = st.columns([1, 1.5])
         with ctl1:
-            elo_encoding_mode = st.radio("Elo encoding", ["Color", "Size"], horizontal=True, key="profile3d_elo_encoding")
+            st.caption("Encoding: Elo → size · SOS → color")
         with ctl2:
             max_games = max(sts["games"] for sts in stats.values()) if stats else 1
             min_games_plot = st.slider("Minimum games", min_value=0, max_value=max_games, value=int(round(thr)), step=1, key="profile3d_min_games")
-        with ctl3:
-            team_search = st.text_input("Team search highlight", value="", key="profile3d_search").strip().lower()
+        team_search = st.text_input("Team search highlight", value="", key="profile3d_search").strip().lower()
 
         profile_df = build_team_profile_3metric_df(stats, adj_vals, elo, sos, min_games_plot)
         if profile_df.empty:
@@ -1918,55 +1917,39 @@ def main():
             elo_max = float(profile_df["Elo"].max())
             elo_span = max(elo_max - elo_min, 1e-6)
             profile_df["EloNorm"] = (profile_df["Elo"] - elo_min) / elo_span
+            sos_min = float(profile_df["SOS"].min())
+            sos_max = float(profile_df["SOS"].max())
 
             hover_sel = alt.selection_point(fields=["Team"], on="mouseover", empty=True, name="team_hover")
             base_opacity = alt.condition(hover_sel | alt.datum.Highlight, alt.value(1.0), alt.value(0.25))
 
-            color_encoding = alt.Color(
-                "EloNorm:Q",
-                scale=alt.Scale(domain=[0, 1], scheme="viridis"),
-                legend=alt.Legend(title=f"Elo ({elo_min:.0f}–{elo_max:.0f})"),
+            sos_color = alt.Color(
+                "SOS:Q",
+                scale=alt.Scale(domain=[sos_min, sos_max], scheme="tealblues"),
+                legend=alt.Legend(title=f"SOS ({sos_min:.3f}–{sos_max:.3f})"),
             )
-            if elo_encoding_mode == "Color":
-                points = alt.Chart(profile_df).mark_circle(size=100).encode(
-                    x=alt.X("WinPct:Q", title="Win %"),
-                    y=alt.Y("AdjPyth:Q", title="Adjusted Pythagorean"),
-                    color=color_encoding,
-                    opacity=base_opacity,
-                    tooltip=[
-                        "Team:N",
-                        alt.Tooltip("WinPct:Q", format=".3f"),
-                        alt.Tooltip("AdjPyth:Q", format=".3f"),
-                        alt.Tooltip("Elo:Q", format=".1f"),
-                        "Games:Q",
-                        alt.Tooltip("SOS:Q", format=".3f"),
-                        "WinRank:Q",
-                        "AdjRank:Q",
-                        "EloRank:Q",
-                    ],
-                )
-            else:
-                points = alt.Chart(profile_df).mark_circle(color="#1D4ED8").encode(
-                    x=alt.X("WinPct:Q", title="Win %"),
-                    y=alt.Y("AdjPyth:Q", title="Adjusted Pythagorean"),
-                    size=alt.Size(
-                        "EloNorm:Q",
-                        legend=alt.Legend(title=f"Elo ({elo_min:.0f}–{elo_max:.0f})"),
-                        scale=alt.Scale(domain=[0, 1], range=[40, 900]),
-                    ),
-                    opacity=base_opacity,
-                    tooltip=[
-                        "Team:N",
-                        alt.Tooltip("WinPct:Q", format=".3f"),
-                        alt.Tooltip("AdjPyth:Q", format=".3f"),
-                        alt.Tooltip("Elo:Q", format=".1f"),
-                        "Games:Q",
-                        alt.Tooltip("SOS:Q", format=".3f"),
-                        "WinRank:Q",
-                        "AdjRank:Q",
-                        "EloRank:Q",
-                    ],
-                )
+            points = alt.Chart(profile_df).mark_circle().encode(
+                x=alt.X("WinPct:Q", title="Win %"),
+                y=alt.Y("AdjPyth:Q", title="Adjusted Pythagorean"),
+                size=alt.Size(
+                    "EloNorm:Q",
+                    legend=alt.Legend(title=f"Elo ({elo_min:.0f}–{elo_max:.0f})"),
+                    scale=alt.Scale(domain=[0, 1], range=[40, 900]),
+                ),
+                color=sos_color,
+                opacity=base_opacity,
+                tooltip=[
+                    "Team:N",
+                    alt.Tooltip("WinPct:Q", format=".3f"),
+                    alt.Tooltip("AdjPyth:Q", format=".3f"),
+                    alt.Tooltip("Elo:Q", format=".1f"),
+                    "Games:Q",
+                    alt.Tooltip("SOS:Q", format=".3f"),
+                    "WinRank:Q",
+                    "AdjRank:Q",
+                    "EloRank:Q",
+                ],
+            )
 
             labels = alt.Chart(profile_df[profile_df["IsFocus"]]).mark_text(
                 align="left", baseline="bottom", dx=6, dy=-4, color=SEMANTIC_COLORS["neutral"]
@@ -1978,6 +1961,39 @@ def main():
 
             chart = (points.add_params(hover_sel) + labels).properties(height=460)
             st.altair_chart(chart, use_container_width=True)
+
+            gpg_df = profile_df.copy()
+            gpg_df["GoalsFor"] = gpg_df["Team"].map(lambda t: stats[t]["gf"] / max(stats[t]["games"], 1))
+            gpg_df["GoalsAgainst"] = gpg_df["Team"].map(lambda t: stats[t]["ga"] / max(stats[t]["games"], 1))
+            st.subheader("Team Profile Space: Goals For vs Goals Against (inverted Y)")
+            st.caption("Elo is encoded by size and SOS by color; lower Goals Against appears higher due inverted y-axis.")
+            gpg_points = alt.Chart(gpg_df).mark_circle().encode(
+                x=alt.X("GoalsFor:Q", title="Goals For / Game"),
+                y=alt.Y("GoalsAgainst:Q", title="Goals Against / Game", scale=alt.Scale(reverse=True)),
+                size=alt.Size(
+                    "EloNorm:Q",
+                    legend=alt.Legend(title=f"Elo ({elo_min:.0f}–{elo_max:.0f})"),
+                    scale=alt.Scale(domain=[0, 1], range=[40, 900]),
+                ),
+                color=sos_color,
+                opacity=base_opacity,
+                tooltip=[
+                    "Team:N",
+                    alt.Tooltip("GoalsFor:Q", format=".2f"),
+                    alt.Tooltip("GoalsAgainst:Q", format=".2f"),
+                    alt.Tooltip("Elo:Q", format=".1f"),
+                    alt.Tooltip("SOS:Q", format=".3f"),
+                    "Games:Q",
+                ],
+            )
+            gpg_labels = alt.Chart(gpg_df[gpg_df["IsFocus"]]).mark_text(
+                align="left", baseline="bottom", dx=6, dy=-4, color=SEMANTIC_COLORS["neutral"]
+            ).encode(
+                x="GoalsFor:Q",
+                y="GoalsAgainst:Q",
+                text="Team:N",
+            )
+            st.altair_chart((gpg_points.add_params(hover_sel) + gpg_labels).properties(height=460), use_container_width=True)
         st.markdown("### Expert Fit")
         illpolo_order = parse_expert_order_text(illpolo_text)
         maxpreps_order = parse_expert_order_text(maxpreps_text)
