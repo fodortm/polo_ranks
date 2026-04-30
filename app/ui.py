@@ -27,6 +27,34 @@ SPACING_SCALE = {"section": "<div style='margin-top: 1.25rem;'></div>", "panel":
 RANK_TIER_COLORS = {"elite": "#1D4ED8", "contender": "#93C5FD", "support": "#9CA3AF"}
 CHART_FORMATS = {"pct3": ".3f", "float3": ".3f", "float2": ".2f", "float1": ".1f", "int0": ".0f"}
 
+
+DEFAULT_ENSEMBLE_WEIGHTS = {
+    "Elo": 0.40,
+    "BCAR": 0.25,
+    "AdjPyth": 0.18,
+    "Pyth": 0.12,
+    "Win": 0.05,
+}
+
+
+def sanitize_ensemble_weights(raw_weights):
+    raw_weights = raw_weights or {}
+    sanitized = {}
+    for model, default_weight in DEFAULT_ENSEMBLE_WEIGHTS.items():
+        raw_value = raw_weights.get(model, default_weight)
+        try:
+            parsed = float(raw_value)
+        except (TypeError, ValueError):
+            parsed = default_weight
+        if math.isnan(parsed) or parsed < 0:
+            parsed = 0.0
+        sanitized[model] = parsed
+
+    total = sum(sanitized.values())
+    if total <= 0:
+        return DEFAULT_ENSEMBLE_WEIGHTS.copy()
+    return {model: weight / total for model, weight in sanitized.items()}
+
 def render_typography(level, text):
     if level in TYPOGRAPHY_SCALE:
         st.markdown(f"{TYPOGRAPHY_SCALE[level]} {text}")
@@ -1253,7 +1281,9 @@ def compute_sectional_rankings(stats, h2h, games_inferred, sos, matchup_agg, glo
 @st.cache_data
 def load_model_config():
     with open(CONFIG_JSON, "r", encoding="utf-8") as f:
-        return json.load(f)
+        config = json.load(f)
+    config["ensemble_weights"] = sanitize_ensemble_weights(config.get("ensemble_weights", {}))
+    return config
 
 def build_confidence_badge(team, stats, h2h, team_imputation, all_teams):
     games = stats[team]["games"]
@@ -1387,13 +1417,7 @@ def _build_expert_nudge_lookup(teams, expert_nudge_cfg):
     return enabled, max_abs, max_rank_shift, applied
 
 def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, ensemble_base_weights=None, win_model_cap=None, ensemble_breadth_cfg=None, expert_nudge_cfg=None):
-    base_weights = ensemble_base_weights or {
-        "Elo": 0.40,
-        "BCAR": 0.25,
-        "AdjPyth": 0.18,
-        "Pyth": 0.12,
-        "Win": 0.05,
-    }
+    base_weights = sanitize_ensemble_weights(ensemble_base_weights or DEFAULT_ENSEMBLE_WEIGHTS)
     model_pct = {name: rank_percentile_map(order) for name, order in orders.items()}
     rank_lookup = {name: {t: i + 1 for i, t in enumerate(order)} for name, order in orders.items()}
     rows = []
@@ -1558,13 +1582,7 @@ def main():
     )
     current_nav = st.session_state["primary_nav"]
     config = load_model_config()
-    ensemble_weights_cfg = {
-        "Elo": float(config.get("ensemble_weights", {}).get("Elo", 0.40)),
-        "BCAR": float(config.get("ensemble_weights", {}).get("BCAR", 0.25)),
-        "AdjPyth": float(config.get("ensemble_weights", {}).get("AdjPyth", 0.18)),
-        "Pyth": float(config.get("ensemble_weights", {}).get("Pyth", 0.12)),
-        "Win": float(config.get("ensemble_weights", {}).get("Win", 0.05)),
-    }
+    ensemble_weights_cfg = sanitize_ensemble_weights(config.get("ensemble_weights", {}))
     win_model_cap_cfg = config.get("win_model_cap", {
         "max_multiplier": 0.85,
         "coverage_floor": 0.65,
@@ -1664,6 +1682,13 @@ def main():
             imputed_weight = st.slider("Inferred game weight", min_value=0.0, max_value=1.0, value=0.5, step=0.05, disabled=(not down_weight_imputed))
             min_games_ratio = st.slider("Min Games Ratio", min_value=0.1, max_value=1.0, value=float(game_count_cfg["min_games_ratio"]), step=0.05, disabled=not enable_overrides)
 
+            st.markdown("**Ensemble Weights**")
+            ensemble_weight_elo = st.slider("Ensemble Elo Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["Elo"]), step=0.01, disabled=not enable_overrides)
+            ensemble_weight_bcar = st.slider("Ensemble BCAR Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["BCAR"]), step=0.01, disabled=not enable_overrides)
+            ensemble_weight_adjpyth = st.slider("Ensemble AdjPyth Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["AdjPyth"]), step=0.01, disabled=not enable_overrides)
+            ensemble_weight_pyth = st.slider("Ensemble Pyth Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["Pyth"]), step=0.01, disabled=not enable_overrides)
+            ensemble_weight_win = st.slider("Ensemble Win% Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["Win"]), step=0.01, disabled=not enable_overrides)
+
             st.markdown("**Sectional Weights**")
             h2h_weight = st.slider("H2H Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["h2h_weight"]), step=0.05, disabled=not enable_overrides)
             common_weight = st.slider("Common Opp Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["common_weight"]), step=0.05, disabled=not enable_overrides)
@@ -1704,6 +1729,16 @@ def main():
         "global_prior_shrink_k": global_prior_shrink_k,
     } if enable_overrides else sectional_cfg
 
+    active_ensemble_weights = sanitize_ensemble_weights({
+        "Elo": ensemble_weight_elo,
+        "BCAR": ensemble_weight_bcar,
+        "AdjPyth": ensemble_weight_adjpyth,
+        "Pyth": ensemble_weight_pyth,
+        "Win": ensemble_weight_win,
+    }) if enable_overrides else ensemble_weights_cfg
+
+    ensemble_weights_cfg = active_ensemble_weights
+
     active_config = {
         "source": "UI overrides" if enable_overrides else f"defaults from {CONFIG_JSON}",
         "logistic": {"k": k, "x0": x0},
@@ -1723,6 +1758,7 @@ def main():
             "imputed_weight": imputed_weight,
         },
         "game_count": {"min_games_ratio": min_games_ratio},
+        "ensemble_weights": active_ensemble_weights,
         "sectional": active_sectional_params,
     }
 
