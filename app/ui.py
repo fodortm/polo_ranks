@@ -265,7 +265,7 @@ def build_dashboard_view_model(stats, rank_order, rank_metric_values, rank_metri
         for i, team in enumerate(rank_order[: min(top_n_rank, len(rank_order))])
     ])
     if rank_metric_label == "Ensemble (Primary)" and isinstance(primary_table, pd.DataFrame) and not primary_table.empty:
-        diag_cols = ["Team", "Calibrated Score", "Composite Confidence", "Weight Elo", "Weight BCAR", "Weight AdjPyth", "Weight Pyth", "Weight Win"]
+        diag_cols = ["Team", "Calibrated Score", "Games Confidence", "SOS Confidence", "Composite Confidence", "Confidence Tier", "Weight Elo", "Weight BCAR", "Weight AdjPyth", "Weight Pyth", "Weight Win"]
         available_diag_cols = [c for c in diag_cols if c in primary_table.columns]
         diag_df = primary_table[available_diag_cols].copy()
         current_rank_table = current_rank_table.merge(diag_df, on="Team", how="left")
@@ -541,7 +541,7 @@ def render_rank_overview_panel(dashboard_vm, metric_label, metric_format):
         return
     st.altair_chart(apply_chart_theme(build_rank_overview_chart(top_n_df, metric_label, metric_format)), use_container_width=True)
     if metric_label == "Ensemble (Primary)":
-        preferred_cols = ["Rank", "Team", "Ensemble Score", "Composite Confidence", "Weight Elo", "Weight BCAR", "Weight AdjPyth", "Weight Pyth", "Weight Win", "SOS"]
+        preferred_cols = ["Rank", "Team", "Ensemble Score", "Games Confidence", "SOS Confidence", "Composite Confidence", "Confidence Tier", "Weight Elo", "Weight BCAR", "Weight AdjPyth", "Weight Pyth", "Weight Win", "SOS"]
         dashboard_table = top_n_df.rename(columns={"Calibrated Score": "Ensemble Score"})
         show_cols = [c for c in preferred_cols if c in dashboard_table.columns]
         if show_cols:
@@ -583,6 +583,11 @@ def render_trust_imputation_panel(dashboard_vm):
     st.progress(trust_metrics["confidence_progress"])
     st.caption(f"Inferred share: {trust_metrics['imputed_pct']:.1%} · Parsed games: {trust_metrics['parsed_games']} · Teams: {trust_metrics['team_count']}")
     st.caption("Lower inferred share generally means more stable ranking confidence.")
+    ensemble_table = dashboard_vm.get("primary_rank_table")
+    if ensemble_table is not None and not ensemble_table.empty and "Composite Confidence" in ensemble_table.columns:
+        avg_conf = float(ensemble_table["Composite Confidence"].mean())
+        st.caption(f"Ensemble confidence snapshot: average composite confidence is {avg_conf:.1f}/100 ({confidence_tier_label(avg_conf)}).")
+        st.caption("Composite confidence blends games volume, SOS normalization + schedule breadth, and imputation reliability.")
     if not impact_df.empty:
         st.dataframe(impact_df, hide_index=True, use_container_width=True)
 # ---------------- I/O ---------------- #
@@ -1318,6 +1323,32 @@ def build_confidence_badge(team, stats, h2h, team_imputation, all_teams):
         return "Medium", score, games_ratio, coverage_ratio, imp_ratio
     return "Low", score, games_ratio, coverage_ratio, imp_ratio
 
+def confidence_tier_label(confidence_score):
+    if confidence_score >= 75:
+        return "High"
+    if confidence_score >= 50:
+        return "Moderate"
+    return "Low"
+
+
+def compute_ensemble_confidence(team, stats, h2h, sos, team_imputation, all_teams):
+    _, _, games_ratio, _, imp_ratio = build_confidence_badge(team, stats, h2h, team_imputation, all_teams)
+    max_sos = max((sos.get(t, 0.0) for t in all_teams), default=1.0)
+    min_sos = min((sos.get(t, 0.0) for t in all_teams), default=0.0)
+    sos_range = max(max_sos - min_sos, 1e-9)
+    sos_norm = (sos.get(team, 0.0) - min_sos) / sos_range
+    _, _, unique_opp_ratio, _, _, _ = compute_resume_breadth_factor(
+        team, stats, h2h, all_teams, team_imputation
+    )
+
+    games_confidence = max(0.0, min(100.0, games_ratio * 100.0))
+    sos_confidence = max(0.0, min(100.0, (0.55 * sos_norm + 0.45 * unique_opp_ratio) * 100.0))
+    reliability_component = max(0.0, min(1.0, 1.0 - imp_ratio))
+    composite_confidence = max(
+        0.0,
+        min(100.0, (0.45 * (games_confidence / 100.0) + 0.35 * (sos_confidence / 100.0) + 0.20 * reliability_component) * 100.0),
+    )
+    return games_confidence, sos_confidence, composite_confidence
 
 
 def compute_resume_breadth_factor(team, stats, h2h, all_teams, team_imputation, breadth_cfg=None):
@@ -1442,6 +1473,9 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
     rows = []
     for team in teams:
         _, confidence, games_ratio, coverage_ratio, imp_ratio = build_confidence_badge(team, stats, h2h, team_imputation, teams)
+        games_confidence, sos_confidence, composite_confidence = compute_ensemble_confidence(
+            team, stats, h2h, sos, team_imputation, teams
+        )
         breadth_damping, unique_opp_count, unique_opp_ratio, _, _, breadth_raw_score = compute_resume_breadth_factor(
             team, stats, h2h, teams, team_imputation, ensemble_breadth_cfg
         )
@@ -1478,6 +1512,11 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
             + normalized_weights["Elo"] * model_pct["Elo"].get(team, 0.0)
         )
         calibrated_score = weighted_sum if total_weight else 0.0
+        low_confidence_floor = 35.0
+        max_low_conf_damping = 0.03
+        if composite_confidence < low_confidence_floor:
+            damping_strength = (low_confidence_floor - composite_confidence) / low_confidence_floor
+            calibrated_score *= max(0.0, 1.0 - (max_low_conf_damping * damping_strength))
         ordinal_ranks = [
             rank_lookup["Win"].get(team, len(orders["Win"]) + 1),
             rank_lookup["Pyth"].get(team, len(orders["Pyth"]) + 1),
@@ -1488,7 +1527,10 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
         rows.append({
             "Team": team,
             "Calibrated Score": calibrated_score,
-            "Composite Confidence": confidence,
+            "Games Confidence": games_confidence,
+            "SOS Confidence": sos_confidence,
+            "Composite Confidence": composite_confidence,
+            "Confidence Tier": confidence_tier_label(composite_confidence),
             "SOS": sos.get(team, 0.0),
             "Direct H2H Tiebreak": compute_rank_tie_break_key(team, stats, sos, h2h)[0],
             "SOS Margin Tiebreak": compute_rank_tie_break_key(team, stats, sos, h2h)[1],
@@ -2064,6 +2106,11 @@ def main():
             'Rank Adj':ranks['adj'],'Rank Elo':ranks['elo'],
             'Imputed Share': f"{(team_imputation[te]['imputed']/team_imputation[te]['games'] if team_imputation[te]['games'] else 0):.1%}"
         },orient='index',columns=['Value']))
+        team_conf_row = primary_payload["table"].set_index("Team").loc[te] if te in set(primary_payload["table"]["Team"]) else None
+        if team_conf_row is not None:
+            st.caption(
+                f"Confidence context — Games: {team_conf_row['Games Confidence']:.1f}/100 · SOS: {team_conf_row['SOS Confidence']:.1f}/100 · Composite: {team_conf_row['Composite Confidence']:.1f}/100 ({team_conf_row['Confidence Tier']})"
+            )
         st.caption(f"Shared context: {te} vs {opp}")
         h = h2h.get((te,opp),{'wins':0,'games':0})
         st.markdown(f"**H2H**: {h['wins']}-{h['games']-h['wins']} in {h['games']} games")
@@ -2284,7 +2331,7 @@ def main():
         df_avg_view = df_avg.set_index("Team").loc[[t for t in table_order if t in set(df_avg["Team"].tolist())]].reset_index()
         df_avg_display = df_avg_view.rename(columns={"Calibrated Score": "Ensemble Score", "Weight Elo": "Elo Contribution", "Weight BCAR": "BCAR Contribution", "Weight AdjPyth": "AdjPyth Contribution", "Weight Pyth": "Pyth Contribution", "Weight Win": "Win Contribution"})
         st.dataframe(df_avg_display[[
-            "Rank", "Team", "Ensemble Score", "Composite Confidence", "Elo Contribution", "BCAR Contribution", "AdjPyth Contribution", "Pyth Contribution", "Win Contribution", "SOS"
+            "Rank", "Team", "Ensemble Score", "Games Confidence", "SOS Confidence", "Composite Confidence", "Confidence Tier", "Elo Contribution", "BCAR Contribution", "AdjPyth Contribution", "Pyth Contribution", "Win Contribution", "SOS"
         ]], use_container_width=True, hide_index=True)
         if opp:
             st.caption(f"Context overlay (Ensemble Primary): {te} rank #{primary_payload['rank_lookup'].get(te, '-')} vs {opp} rank #{primary_payload['rank_lookup'].get(opp, '-')}")
