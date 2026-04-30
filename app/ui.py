@@ -1130,23 +1130,9 @@ def build_calibrated_ensemble(teams, orders, stats, h2h, sos, team_imputation, e
 
 def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
-    if "view_mode" not in st.session_state:
-        st.session_state["view_mode"] = "Casual View"
-    st.markdown("### Viewing Mode")
-    st.caption("Choose how much detail you want to see in the dashboard.")
-    st.radio(
-        "Select mode",
-        options=["Casual View", "Deep Dive"],
-        horizontal=True,
-        key="view_mode",
-        help="Casual View shows plain-language takeaways. Deep Dive unlocks all diagnostics and model controls.",
-    )
-    is_deep_dive = st.session_state["view_mode"] == "Deep Dive"
-    st.info(f"Current mode: **{st.session_state['view_mode']}**")
+    is_deep_dive = False
 
-    casual_nav = ["Dashboard", "Team Profile", "Rank Tables", "Sectionals"]
-    power_nav = ["Dashboard", "Team Profile", "Rank Tables", "Sectionals", "Model Diagnostics"]
-    nav_options = power_nav if is_deep_dive else casual_nav
+    nav_options = ["Dashboard", "Team Profile", "Rank Tables", "Sectionals"]
     if "primary_nav" not in st.session_state or st.session_state["primary_nav"] not in nav_options:
         st.session_state["primary_nav"] = "Dashboard"
     st.markdown("### Primary Navigation")
@@ -1198,8 +1184,7 @@ def main():
     rebuilt_ts = pd.to_datetime(qa_meta.get("rebuilt_at"), utc=True, errors="coerce")
     rebuilt_label = rebuilt_ts.strftime("%Y-%m-%d %H:%M:%S UTC") if pd.notna(rebuilt_ts) else "unknown"
     st.sidebar.markdown(f"**Freshness:** last rebuilt from files: `{rebuilt_label}`")
-    if is_deep_dive:
-        with st.sidebar.expander("Ingestion QA Summary", expanded=False):
+    with st.sidebar.expander("Ingestion QA Summary", expanded=False):
             st.markdown(f"- Files loaded: `{qa_meta.get('files_loaded', 0)}`")
             st.markdown(f"- Games parsed: `{qa_meta.get('games_parsed', 0)}`")
             st.markdown(f"- Duplicates removed: `{qa_meta.get('duplicates_dropped', 0)}`")
@@ -1241,8 +1226,6 @@ def main():
                             )
                             if row.get("suspicious_examples"):
                                 st.code("\n".join(row["suspicious_examples"]), language="text")
-    else:
-        st.sidebar.caption("Casual View hides diagnostics to keep this simple.")
 
     logistic_cfg = config["logistic"]
     elo_cfg = config["elo"]
@@ -1250,8 +1233,7 @@ def main():
     game_count_cfg = config["game_count"]
     sectional_cfg = {**SECTIONAL_SCORE_PARAMS, **config["sectional"]}
 
-    if is_deep_dive:
-        with st.sidebar.expander("Advanced Settings", expanded=False):
+    with st.sidebar.expander("Advanced Settings", expanded=False):
             enable_overrides = st.checkbox("Enable UI overrides", value=False)
             k = st.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=int(logistic_cfg["k"]), disabled=not enable_overrides)
             x0 = st.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=float(logistic_cfg["x0"]), step=0.05, disabled=not enable_overrides)
@@ -1288,20 +1270,6 @@ def main():
             global_prior_min_weight = st.slider("Global Prior Min Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_min_weight"]), step=0.01, disabled=not enable_overrides)
             global_prior_max_weight = st.slider("Global Prior Max Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_max_weight"]), step=0.01, disabled=not enable_overrides)
             global_prior_shrink_k = st.slider("Global Prior Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["global_prior_shrink_k"]), step=0.5, disabled=not enable_overrides)
-    else:
-        enable_overrides = False
-        k = int(logistic_cfg["k"]); x0 = float(logistic_cfg["x0"]); elo_k = int(elo_cfg.get("k",22))
-        phase_k_enabled = bool(elo_cfg.get("phase_k_enabled", False)); early_phase_games = int(elo_cfg.get("early_phase_games", 40))
-        early_phase_multiplier = float(elo_cfg.get("early_phase_multiplier", 1.15)); late_phase_multiplier = float(elo_cfg.get("late_phase_multiplier", 0.9))
-        pythag_exp = float(pythag_cfg["exponent"]); include_estimated_scores = True; highlight_estimated_games = True; down_weight_imputed = False; imputed_weight = 0.5
-        min_games_ratio = float(game_count_cfg["min_games_ratio"])
-        h2h_weight = float(sectional_cfg["h2h_weight"]); common_weight = float(sectional_cfg["common_weight"]); win_pct_weight = float(sectional_cfg["win_pct_weight"])
-        sos_center = float(sectional_cfg["sos_center"]); sos_scale = float(sectional_cfg["sos_scale"]); sectional_sos_boost = float(sectional_cfg["sectional_sos_boost"])
-        game_penalty_threshold = float(sectional_cfg["game_penalty_threshold"]); game_penalty_power = float(sectional_cfg["game_penalty_power"])
-        sectional_penalty_threshold = float(sectional_cfg["sectional_penalty_threshold"]); reliability_floor = float(sectional_cfg["reliability_floor"])
-        reliability_ceiling = float(sectional_cfg["reliability_ceiling"]); reliability_shrink_k = float(sectional_cfg["reliability_shrink_k"])
-        global_prior_min_weight = float(sectional_cfg["global_prior_min_weight"]); global_prior_max_weight = float(sectional_cfg["global_prior_max_weight"])
-        global_prior_shrink_k = float(sectional_cfg["global_prior_shrink_k"])
     active_sectional_params = {
         **sectional_cfg,
         "h2h_weight": h2h_weight,
@@ -1343,19 +1311,14 @@ def main():
         "sectional": active_sectional_params,
     }
 
-    if is_deep_dive:
-        with st.sidebar.expander("Model Settings", expanded=False):
-            st.caption("Active model configuration for reproducibility")
-            st.caption("Win% is intentionally low-trust in composite scoring and receives an additional reliability cap in the ensemble.")
-            st.json(active_config)
-        with st.sidebar.expander("Expert Orders", expanded=False):
-            st.caption("Paste Top 25 lists (one team per line; numbering optional) to compare model fit.")
-            illpolo_text = st.text_area("Illpolo order", height=180, key="illpolo_order_text")
-            maxpreps_text = st.text_area("MaxPreps order", height=180, key="maxpreps_order_text")
-    else:
-        illpolo_text = ""
-        maxpreps_text = ""
-        maxpreps_text = ""
+    with st.sidebar.expander("Model Settings", expanded=False):
+        st.caption("Active model configuration for reproducibility")
+        st.caption("Win% is intentionally low-trust in composite scoring and receives an additional reliability cap in the ensemble.")
+        st.json(active_config)
+    with st.sidebar.expander("Expert Orders", expanded=False):
+        st.caption("Paste Top 25 lists (one team per line; numbering optional) to compare model fit.")
+        illpolo_text = st.text_area("Illpolo order", height=180, key="illpolo_order_text")
+        maxpreps_text = st.text_area("MaxPreps order", height=180, key="maxpreps_order_text")
     
     # Initial stats
     scored_games = raw_games.dropna(subset=['score1'])
@@ -1590,10 +1553,17 @@ def main():
         st.info("Primary questions answered above: top team, trend direction, and biggest mover without scrolling.")
         return
 
-    tabs = st.tabs(["Profile","Win%","Pythag","AdjPyth","Elo","Avg","Sectionals","Changes"])
-    
-    # Profile tab
-    with tabs[0]:
+    section_defaults = {"Team Profile": "Profile", "Rank Tables": "Win%", "Sectionals": "Sectionals"}
+    all_sections = ["Profile","Win%","Pythag","AdjPyth","Elo","Avg","Sectionals"]
+    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Win%","Pythag","AdjPyth","Elo","Avg"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
+    default_section = section_defaults.get(current_nav, "Profile")
+    if "content_section" not in st.session_state or st.session_state["content_section"] not in available_sections:
+        st.session_state["content_section"] = default_section if default_section in available_sections else available_sections[0]
+    st.markdown("### Content")
+    st.radio("View", options=available_sections, horizontal=True, key="content_section")
+    selected_section = st.session_state["content_section"]
+
+    if selected_section == "Profile":
         st.subheader(f"Profile: {te}")
         st.table(pd.DataFrame.from_dict({
             'GPG For':f"{stats[te]['gf']/stats[te]['games']:.2f}",
@@ -1737,8 +1707,7 @@ def main():
               'Allowed':(r.score2 if r.team1==te else r.score1)} for r in games_inferred.itertuples() if r.team1==te or r.team2==te]
         st.dataframe(pd.DataFrame(sch))
     
-    # Win % tab
-    with tabs[1]:
+    if selected_section == "Win%":
         st.subheader(
             "Rankings by Win %",
             help="Tie-breaks: 1) Win%, 2) if exactly two teams are tied use head-to-head, 3) for ties of 3+ use mini-table (head-to-head points, then mini-table win%), 4) mini-table goal differential, 5) full-season goal differential."
@@ -1755,8 +1724,7 @@ def main():
         chart_data=pd.DataFrame({'Team':win_ord,'Win %':[stats[t]['win_pct'] for t in win_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Win %'), use_container_width=True)
     
-    # Pythagorean tab
-    with tabs[2]:
+    if selected_section == "Pythag":
         st.subheader("Rankings by Pythagorean")
         df_py=pd.DataFrame({'Team':py_ord,
                             'Exp %':[f"{py[t]:.3f}" for t in py_ord],
@@ -1770,8 +1738,7 @@ def main():
         chart_data=pd.DataFrame({'Team':py_ord,'Pythag':[py[t] for t in py_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Pythag'),use_container_width=True)
     
-    # Adjusted Pythagorean tab
-    with tabs[3]:
+    if selected_section == "AdjPyth":
         st.subheader("Rankings by Adjusted Pythagorean")
         df_adj=pd.DataFrame({'Team':adj_ord,
                              'AdjPyth %':[f"{adj_vals[t]:.3f}" for t in adj_ord],
@@ -1794,8 +1761,7 @@ def main():
         )
         st.altair_chart(scatter, use_container_width=True)
     
-    # Elo tab
-    with tabs[4]:
+    if selected_section == "Elo":
         st.subheader("Rankings by Elo")
         st.caption("Elo volatility has been intentionally reduced to better match expert poll stability.")
         df_elo=pd.DataFrame({'Team':elo_ord,
@@ -1809,8 +1775,7 @@ def main():
         chart_data=pd.DataFrame({'Team':elo_ord,'Elo':[elo[t] for t in elo_ord]})
         st.altair_chart(alt.Chart(chart_data).mark_bar().encode(x='Team',y='Elo'),use_container_width=True)
     
-    # Average composite tab
-    with tabs[5]:
+    if selected_section == "Avg":
         st.subheader("Rankings by Calibrated Ensemble")
         eligible_teams = [t for t in teams if stats[t]['games'] >= thr and t in win_ord and t in py_ord and t in adj_ord and t in elo_ord]
         df_avg = build_calibrated_ensemble(eligible_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg, expert_nudge_cfg=expert_nudge_cfg)
@@ -1943,8 +1908,7 @@ def main():
                         else:
                             st.caption("No Top 25 overlap with this expert list.")
     
-    # Sectionals tab
-    with tabs[6]:
+    if selected_section == "Sectionals":
         st.subheader("Sectional Rankings")
         
         # Display sectional strength rankings
@@ -2041,13 +2005,6 @@ def main():
                     else:
                         st.write("No sectional common opponents")
 
-    with tabs[7]:
-        st.subheader("What changed since last upload")
-        if previous_orders is not None:
-            current_orders = {"Win%": win_ord, "Pythag": py_ord, "AdjPyth": adj_ord, "Elo": elo_ord}
-            st.dataframe(build_rank_diff(previous_orders, current_orders).sort_values(["Model", "Current Rank"]))
-        else:
-            st.info("Upload new games to see rank changes versus prior file state.")
 
 if __name__ == "__main__":
     main()
