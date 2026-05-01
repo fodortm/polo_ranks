@@ -27,6 +27,12 @@ SPACING_SCALE = {"section": "<div style='margin-top: 1.25rem;'></div>", "panel":
 RANK_TIER_COLORS = {"elite": "#1D4ED8", "contender": "#93C5FD", "support": "#9CA3AF"}
 CHART_FORMATS = {"pct3": ".3f", "float3": ".3f", "float2": ".2f", "float1": ".1f", "int0": ".0f"}
 
+DEFAULT_PRIMARY_METRIC = "BCAR"
+DEFAULT_DASHBOARD_METRIC_LENS = "BCAR"
+DEFAULT_WEEKLY_TREND_METRIC = "BCAR"
+DEFAULT_SORT_MODE = "BCAR"
+LEGACY_METRIC_DEFAULTS = {"Ensemble", "Ensemble (Primary)", "Win%", "Win %"}
+
 
 DEFAULT_ENSEMBLE_WEIGHTS = {
     "Elo": 0.40,
@@ -543,7 +549,7 @@ def render_dashboard_controls():
     ctl_b.checkbox("Whole season", key="dashboard_whole_season")
     st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
     _sync_dashboard_timeframe_query_params()
-    ctl_c.selectbox("Metric lens", options=["Win%", "Adj Pyth", "Elo", "Ensemble"], key="dashboard_metric_lens")
+    ctl_c.selectbox("Metric lens", options=["BCAR", "Win%", "Adj Pyth", "Elo", "Ensemble"], key="dashboard_metric_lens")
     with st.expander("Advanced options", expanded=False):
         st.caption("Tune advanced chart density controls for trend and movement panels.")
         trend_top_n = st.slider("Trend teams shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_trend_top_n")
@@ -2048,10 +2054,20 @@ def main():
         previous_orders = {"Win%": rank_win_pct(prev_stats, prev_h2h), "Pythag": rank_pythag(prev_stats, prev_py), "AdjPyth": prev_adj, "Elo": rank_elo(prev_stats, prev_elo)}
 
     sort_modes = ["Ensemble rank", "Elo", "BCAR", "AdjPyth", "Pyth", "Win%", "SOS"]
+    if st.session_state.get("dashboard_metric_lens") in LEGACY_METRIC_DEFAULTS:
+        st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
+    if st.session_state.get("dashboard_weekly_metric") in LEGACY_METRIC_DEFAULTS:
+        st.session_state["dashboard_weekly_metric"] = DEFAULT_WEEKLY_TREND_METRIC
+    if st.session_state.get("rank_table_sort_mode") in LEGACY_METRIC_DEFAULTS or st.session_state.get("rank_table_sort_mode") == "Ensemble rank":
+        st.session_state["rank_table_sort_mode"] = DEFAULT_SORT_MODE
+    if st.session_state.get("team_selector_sort_mode") in LEGACY_METRIC_DEFAULTS or st.session_state.get("team_selector_sort_mode") == "Ensemble rank":
+        st.session_state["team_selector_sort_mode"] = DEFAULT_SORT_MODE
     # Team profile selection
     default_team = "Evanston"
     default_compare_team = "New Trier"
     st.sidebar.header("Team Profile")
+    if st.session_state.get("team_selector_sort_mode") in LEGACY_METRIC_DEFAULTS or st.session_state.get("team_selector_sort_mode") == "Ensemble rank":
+        st.session_state["team_selector_sort_mode"] = DEFAULT_SORT_MODE
     selector_sort_mode = st.sidebar.selectbox("Team selector order", sort_modes, key="team_selector_sort_mode")
     selector_order = sort_teams_by_mode(
         selector_sort_mode, teams, stats, sos, primary_payload["table"], elo=elo, bcar_table=bcar_table, adj_vals=adj_vals, pyth_vals=py
@@ -2089,7 +2105,7 @@ def main():
             st.session_state["dashboard_top10_only"] = False
         _init_dashboard_timeframe_state()
         if "dashboard_metric_lens" not in st.session_state:
-            st.session_state["dashboard_metric_lens"] = "Ensemble"
+            st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
         # Backward-compatible cleanup: ignore legacy persona state from prior sessions/links.
         st.session_state.pop("dashboard_persona", None)
 
@@ -2100,12 +2116,17 @@ def main():
             st.session_state["dashboard_whole_season"] = False
         st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
         if st.session_state["dashboard_metric_lens"] not in ["Win%", "Adj Pyth", "Elo", "Ensemble"]:
-            st.session_state["dashboard_metric_lens"] = "Ensemble"
+            st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
 
         trend_top_n, movement_top_n = render_dashboard_controls()
 
         metric_lens = st.session_state["dashboard_metric_lens"]
-        if metric_lens == "Adj Pyth":
+        if metric_lens == "BCAR":
+            dashboard_order = bcar_ord
+            dashboard_metric_values = dict(zip(bcar_table["Team"], bcar_table["BCAR Score"])) if not bcar_table.empty else {}
+            metric_label = "BCAR"
+            metric_format = CHART_FORMATS["float3"]
+        elif metric_lens == "Adj Pyth":
             dashboard_order = adj_ord
             dashboard_metric_values = adj_vals
             metric_label = "Adj Pyth"
@@ -2167,8 +2188,8 @@ def main():
 
         st.subheader("Weekly rank trend")
         if "dashboard_weekly_metric" not in st.session_state:
-            st.session_state["dashboard_weekly_metric"] = "Ensemble"
-        trend_metric = st.selectbox("Trend metric", ["Ensemble", "Win %", "Adjusted Pyth", "Elo"], key="dashboard_weekly_metric")
+            st.session_state["dashboard_weekly_metric"] = DEFAULT_WEEKLY_TREND_METRIC
+        trend_metric = st.selectbox("Trend metric", ["BCAR", "Ensemble", "Win %", "Adjusted Pyth", "Elo"], key="dashboard_weekly_metric")
         trend_n = st.slider("Teams to show", min_value=5, max_value=max(5, len(dashboard_order)), value=min(12, len(dashboard_order)), key="dashboard_weekly_top_n")
         if "dashboard_weekly_window" not in st.session_state:
             st.session_state["dashboard_weekly_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
@@ -2197,7 +2218,10 @@ def main():
     st.markdown("### Content")
     st.radio("View", options=available_sections, horizontal=True, key="content_section")
     selected_section = st.session_state["content_section"]
-    table_sort_mode = st.session_state.get("rank_table_sort_mode", "Ensemble rank")
+    table_sort_mode = st.session_state.get("rank_table_sort_mode", DEFAULT_SORT_MODE)
+    if table_sort_mode in LEGACY_METRIC_DEFAULTS or table_sort_mode == "Ensemble rank":
+        table_sort_mode = DEFAULT_SORT_MODE
+        st.session_state["rank_table_sort_mode"] = DEFAULT_SORT_MODE
     if selected_section in ["Win%", "Pythag", "AdjPyth", "Elo", "BCAR", "Hybrid", "Ensemble (Primary)"]:
         table_sort_mode = st.radio(
             "Team order",
