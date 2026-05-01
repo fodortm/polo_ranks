@@ -271,23 +271,40 @@ class ScheduleAdjustedGoalStrengthRanker:
     def _compute_sov(self, games: pd.DataFrame, residuals: np.ndarray, theta: np.ndarray, team_to_idx: Dict[str, int]) -> np.ndarray:
         n_teams = len(team_to_idx)
         sov_sum = np.zeros(n_teams, dtype=float)
-        win_count = np.zeros(n_teams, dtype=float)
+        effective_weighted_wins = np.zeros(n_teams, dtype=float)
+
+        # Bound opponent quality in [0, 1] so repeated wins over weak opponents
+        # cannot overwhelm fewer surprise wins over stronger opposition.
+        median_theta = float(np.median(theta))
+        theta_std = float(np.std(theta))
+        quality_scale = max(theta_std, self.config.eps)
+
+        def bounded_quality(opponent_theta: float) -> float:
+            normalized = (opponent_theta - median_theta) / quality_scale
+            return float(1.0 / (1.0 + np.exp(-normalized)))
 
         for g_idx, row in games.reset_index(drop=True).iterrows():
             a = team_to_idx[row["team_a"]]
             b = team_to_idx[row["team_b"]]
-            quality_a = max(theta[b], 0.0)
-            quality_b = max(theta[a], 0.0)
+            quality_a = bounded_quality(theta[b])
+            quality_b = bounded_quality(theta[a])
             res = residuals[g_idx]
 
             if row["goals_a"] > row["goals_b"] and res > 0:
-                sov_sum[a] += res * (1.0 + quality_a)
-                win_count[a] += 1
+                game_weight = (0.25 + quality_a) ** 2
+                sov_sum[a] += res * game_weight
+                effective_weighted_wins[a] += game_weight
             elif row["goals_b"] > row["goals_a"] and -res > 0:
-                sov_sum[b] += (-res) * (1.0 + quality_b)
-                win_count[b] += 1
+                game_weight = (0.25 + quality_b) ** 2
+                sov_sum[b] += (-res) * game_weight
+                effective_weighted_wins[b] += game_weight
 
-        return np.divide(sov_sum, win_count, out=np.zeros_like(sov_sum), where=win_count > 0)
+        return np.divide(
+            sov_sum,
+            effective_weighted_wins,
+            out=np.zeros_like(sov_sum),
+            where=effective_weighted_wins > 0,
+        )
 
     def _compute_volatility(self, games: pd.DataFrame, residuals: np.ndarray, team_to_idx: Dict[str, int]) -> np.ndarray:
         n_teams = len(team_to_idx)

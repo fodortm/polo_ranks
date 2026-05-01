@@ -73,6 +73,55 @@ def test_sov_rewards_quality_residual_more_than_weak_expected_blowout():
     assert sov["Hero"] > sov["Strong"]
 
 
+def test_sov_repeated_weak_wins_do_not_beat_fewer_high_surprise_strong_wins():
+    games = pd.DataFrame(
+        [
+            {"team_a": "Power", "team_b": "WeakA", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+            {"team_a": "Power", "team_b": "WeakB", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+            {"team_a": "Power", "team_b": "WeakC", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+            {"team_a": "Power", "team_b": "WeakD", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+            {"team_a": "Power", "team_b": "WeakE", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+            {"team_a": "Upset", "team_b": "Power", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+            {"team_a": "Upset", "team_b": "Power", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+        ]
+    )
+    teams = sorted(set(games["team_a"]).union(games["team_b"]))
+    team_to_idx = {team: idx for idx, team in enumerate(teams)}
+    theta = np.array([1.5 if team == "Power" else (-1.0 if team.startswith("Weak") else 0.0) for team in teams], dtype=float)
+    residuals = np.array([0.08, 0.09, 0.10, 0.08, 0.09, 0.45, 0.40], dtype=float)
+
+    ranker = ScheduleAdjustedGoalStrengthRanker(HybridRankingConfig())
+    sov = ranker._compute_sov(games, residuals=residuals, theta=theta, team_to_idx=team_to_idx)
+
+    assert sov[team_to_idx["Upset"]] > sov[team_to_idx["Power"]]
+
+
+def test_sov_is_non_negative_and_stable_with_duplicated_weak_games():
+    base_games = pd.DataFrame(
+        [
+            {"team_a": "Power", "team_b": "WeakA", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+            {"team_a": "Power", "team_b": "WeakB", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+            {"team_a": "Upset", "team_b": "Power", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+        ]
+    )
+    duplicated_games = pd.concat([base_games, base_games.iloc[[0, 1]]], ignore_index=True)
+
+    teams = sorted(set(duplicated_games["team_a"]).union(duplicated_games["team_b"]))
+    team_to_idx = {team: idx for idx, team in enumerate(teams)}
+    theta = np.array([1.5 if team == "Power" else (-1.0 if team.startswith("Weak") else 0.0) for team in teams], dtype=float)
+
+    base_residuals = np.array([0.1, 0.1, 0.4], dtype=float)
+    duplicated_residuals = np.array([0.1, 0.1, 0.4, 0.1, 0.1], dtype=float)
+
+    ranker = ScheduleAdjustedGoalStrengthRanker(HybridRankingConfig())
+    base_sov = ranker._compute_sov(base_games, residuals=base_residuals, theta=theta, team_to_idx=team_to_idx)
+    duplicated_sov = ranker._compute_sov(duplicated_games, residuals=duplicated_residuals, theta=theta, team_to_idx=team_to_idx)
+
+    assert (base_sov >= 0).all()
+    assert (duplicated_sov >= 0).all()
+    assert abs(duplicated_sov[team_to_idx["Power"]] - base_sov[team_to_idx["Power"]]) < 1e-9
+
+
 def test_uncertainty_bounds_and_ci_are_sensible():
     games = _load_hybrid_games()
     model = ScheduleAdjustedGoalStrengthRanker().fit(games)
