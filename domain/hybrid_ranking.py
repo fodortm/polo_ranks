@@ -62,6 +62,7 @@ class ScheduleAdjustedGoalStrengthRanker:
         sqrt_w = np.sqrt(weights)
         Xw = X * sqrt_w[:, None]
         yw = y * sqrt_w
+        self.weights_ = weights
 
         reg = np.zeros((X.shape[1], X.shape[1]), dtype=float)
         np.fill_diagonal(reg[:n_teams, :n_teams], self.config.ridge_lambda)
