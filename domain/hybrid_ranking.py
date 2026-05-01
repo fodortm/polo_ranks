@@ -28,6 +28,7 @@ class ScheduleAdjustedGoalStrengthRanker:
     def __init__(self, config: Optional[HybridRankingConfig] = None) -> None:
         self.config = config or HybridRankingConfig()
         self._is_fit = False
+        self.fit_warnings_: list[str] = []
 
     def fit(self, games_df: pd.DataFrame, game_weights: Optional[Iterable[float]] = None) -> "ScheduleAdjustedGoalStrengthRanker":
         self._validate_schema(games_df)
@@ -70,10 +71,24 @@ class ScheduleAdjustedGoalStrengthRanker:
 
         lhs = Xw.T @ Xw + reg
         rhs = Xw.T @ yw + prior_rhs
-        theta = np.linalg.solve(lhs, rhs)
+        solve_used_pinv = False
+        try:
+            theta = np.linalg.solve(lhs, rhs)
+            lhs_inv = np.linalg.inv(lhs)
+        except np.linalg.LinAlgError:
+            solve_used_pinv = True
+            lhs_inv = np.linalg.pinv(lhs)
+            theta = lhs_inv @ rhs
 
         expectation = X @ theta
         residuals = y - expectation
+
+        sigma2, dof = self._estimate_sigma2(Xw=Xw, residuals=residuals, lhs_inv=lhs_inv)
+        covariance = sigma2 * lhs_inv
+        rating_se = np.sqrt(np.clip(np.diag(covariance)[:n_teams], a_min=0.0, a_max=None))
+
+        se_prior = self._se_prior()
+        confidence = np.clip(100.0 * (1.0 - (rating_se / se_prior)), 0.0, 100.0)
 
         sos = self._compute_sos(games, theta[:n_teams], team_to_idx, weights)
         lambda_sos = self.config.lambda_sos_max * (games_played / (games_played + self.config.k0))
@@ -81,6 +96,8 @@ class ScheduleAdjustedGoalStrengthRanker:
         volatility = self._compute_volatility(games, residuals, team_to_idx)
 
         rating = theta[:n_teams] + lambda_sos * sos + self.config.lambda_sov * sov - self.config.lambda_var * volatility
+        rating_ci_low = rating - 1.96 * rating_se
+        rating_ci_high = rating + 1.96 * rating_se
 
         self.teams_ = teams
         self.team_to_idx_ = team_to_idx
@@ -99,20 +116,40 @@ class ScheduleAdjustedGoalStrengthRanker:
         self.sov_ = sov
         self.volatility_ = volatility
         self.rating_ = rating
+        self.rating_se_ = rating_se
+        self.rating_ci_low_ = rating_ci_low
+        self.rating_ci_high_ = rating_ci_high
+        self.confidence_ = confidence
+        self.sigma2_ = sigma2
+        self.dof_ = dof
+        self.covariance_ = covariance
         self.normal_matrix_ = lhs
         self.normal_rhs_ = rhs
+        self.solve_used_pinv_ = solve_used_pinv
+        self.fit_warnings_ = []
+        if solve_used_pinv:
+            self.fit_warnings_.append("normal-equation solve used pseudo-inverse fallback")
+        if np.any(self.games_played_ < 2):
+            self.fit_warnings_.append("very small sample size for one or more teams")
 
         self._is_fit = True
         return self
 
     def rankings(self) -> pd.DataFrame:
+        return self.rankings_table()
+
+    def rankings_table(self) -> pd.DataFrame:
         if not self._is_fit:
-            raise RuntimeError("Model must be fit before calling rankings().")
+            raise RuntimeError("Model must be fit before calling rankings_table().")
 
         frame = pd.DataFrame(
             {
                 "team": self.teams_,
                 "rating": self.rating_,
+                "rating_se": self.rating_se_,
+                "rating_ci_low": self.rating_ci_low_,
+                "rating_ci_high": self.rating_ci_high_,
+                "confidence": self.confidence_,
                 "theta": self.theta_[: len(self.teams_)],
                 "prior": self.priors_,
                 "games": self.games_played_,
@@ -122,6 +159,18 @@ class ScheduleAdjustedGoalStrengthRanker:
             }
         )
         return frame.sort_values("rating", ascending=False).reset_index(drop=True)
+
+    def _estimate_sigma2(self, Xw: np.ndarray, residuals: np.ndarray, lhs_inv: np.ndarray) -> tuple[float, float]:
+        weighted_sse = float(np.sum((np.sqrt(self.weights_) * residuals) ** 2))
+        leverage = np.trace(Xw @ lhs_inv @ Xw.T)
+        dof = max(float(np.sum(self.weights_) - leverage), 1.0)
+        sigma2 = max(weighted_sse / dof, self.config.eps)
+        return sigma2, dof
+
+    def _se_prior(self) -> float:
+        if self.config.ridge_lambda <= 0:
+            return 1.0
+        return float(np.sqrt(1.0 / self.config.ridge_lambda))
 
     def _validate_schema(self, games_df: pd.DataFrame) -> None:
         missing = self.REQUIRED_COLUMNS - set(games_df.columns)
