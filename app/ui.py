@@ -516,7 +516,7 @@ def render_dashboard_header_kpis(kpi, metric_lens, metric_format):
 
 def render_dashboard_controls():
     ctl_a, ctl_b, ctl_c = st.columns(3)
-    ctl_a.selectbox("Top N", options=[10, 15, 25], key="dashboard_top_n")
+    ctl_a.checkbox("Top 10 only", key="dashboard_top10_only")
     ctl_b.selectbox("Time window", options=["Last 4 weeks", "All"], key="dashboard_time_window")
     ctl_c.selectbox("Metric lens", options=["Win%", "Adj Pyth", "Elo", "Ensemble"], key="dashboard_metric_lens")
     with st.expander("Advanced options", expanded=False):
@@ -2060,8 +2060,8 @@ def main():
 
     # Tabs & content
     if current_nav == "Dashboard":
-        if "dashboard_top_n" not in st.session_state:
-            st.session_state["dashboard_top_n"] = 10
+        if "dashboard_top10_only" not in st.session_state:
+            st.session_state["dashboard_top10_only"] = False
         if "dashboard_time_window" not in st.session_state:
             st.session_state["dashboard_time_window"] = "Last 4 weeks"
         if "dashboard_metric_lens" not in st.session_state:
@@ -2070,8 +2070,8 @@ def main():
         st.session_state.pop("dashboard_persona", None)
 
         # Safe fallback for persisted/linked state values outside the current control options.
-        if st.session_state["dashboard_top_n"] not in [10, 15, 25]:
-            st.session_state["dashboard_top_n"] = 10
+        if not isinstance(st.session_state["dashboard_top10_only"], bool):
+            st.session_state["dashboard_top10_only"] = False
         if st.session_state["dashboard_time_window"] not in ["Last 4 weeks", "All"]:
             st.session_state["dashboard_time_window"] = "Last 4 weeks"
         if st.session_state["dashboard_metric_lens"] not in ["Win%", "Adj Pyth", "Elo", "Ensemble"]:
@@ -2112,7 +2112,7 @@ def main():
             games_inferred,
             weekly_ranks,
             window_size=window_size,
-            top_n_rank=st.session_state["dashboard_top_n"],
+            top_n_rank=10 if st.session_state["dashboard_top10_only"] else 25,
             trend_top_n=trend_top_n,
             movement_top_n=movement_top_n,
             primary_table=primary_payload["table"],
