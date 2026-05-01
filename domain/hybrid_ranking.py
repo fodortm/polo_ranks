@@ -89,8 +89,18 @@ class ScheduleAdjustedGoalStrengthRanker:
         covariance = sigma2 * lhs_inv
         rating_se = np.sqrt(np.clip(np.diag(covariance)[:n_teams], a_min=0.0, a_max=None))
 
-        se_prior = self._se_prior()
-        confidence = np.clip(100.0 * (1.0 - (rating_se / se_prior)), 0.0, 100.0)
+        confidence_baseline_se = self._confidence_baseline_se(
+            rating_se=rating_se,
+            games_played=games_played,
+            lhs_inv=lhs_inv,
+            n_teams=n_teams,
+        )
+        # Confidence maps uncertainty to [0, 100] using a robust baseline SE.
+        # Formula: confidence_i = clip(100 * (1 - se_i / se_baseline), 0, 100).
+        # se_baseline uses the median SE among teams at the minimum information level
+        # (fewest games played), with a closed-form prior-only diagonal fallback
+        # sqrt(1 / ridge_lambda) when data geometry is singular or degenerate.
+        confidence = np.clip(100.0 * (1.0 - (rating_se / confidence_baseline_se)), 0.0, 100.0)
 
         sos = self._compute_sos(games, theta[:n_teams], team_to_idx, weights)
         lambda_sos = self.config.lambda_sos_max * (games_played / (games_played + self.config.k0))
@@ -215,6 +225,31 @@ class ScheduleAdjustedGoalStrengthRanker:
         if self.config.ridge_lambda <= 0:
             return 1.0
         return float(np.sqrt(1.0 / self.config.ridge_lambda))
+
+    def _confidence_baseline_se(
+        self,
+        rating_se: np.ndarray,
+        games_played: np.ndarray,
+        lhs_inv: np.ndarray,
+        n_teams: int,
+    ) -> float:
+        min_games = float(np.min(games_played))
+        min_info_mask = games_played == min_games
+        min_info_ses = rating_se[min_info_mask]
+        finite_min_info_ses = min_info_ses[np.isfinite(min_info_ses)]
+        if finite_min_info_ses.size > 0:
+            baseline = float(np.median(finite_min_info_ses))
+            if baseline > self.config.eps:
+                return baseline
+
+        prior_only_diag = np.diag(lhs_inv)[:n_teams]
+        finite_prior_diag = prior_only_diag[np.isfinite(prior_only_diag) & (prior_only_diag > 0.0)]
+        if finite_prior_diag.size > 0:
+            prior_closed_form = float(np.median(np.sqrt(finite_prior_diag)))
+            if prior_closed_form > self.config.eps:
+                return prior_closed_form
+
+        return max(self._se_prior(), self.config.eps)
 
     def _validate_schema(self, games_df: pd.DataFrame) -> None:
         missing = self.REQUIRED_COLUMNS - set(games_df.columns)
