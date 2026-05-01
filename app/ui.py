@@ -12,6 +12,7 @@ import altair as alt
 
 from domain.parsing import discover_score_files, is_skippable_line, load_parser_config, normalize_team_name, parse_game_line_anchored
 from domain.hybrid_ranking import HybridRankingConfig, ScheduleAdjustedGoalStrengthRanker
+from domain.service import build_team_resume
 
 # ---------------- Constants ---------------- #
 SCORES_CSV = "scores.csv"
@@ -2158,6 +2159,8 @@ def main():
         st.session_state["rank_table_sort_mode"] = DEFAULT_SORT_MODE
     if st.session_state.get("team_selector_sort_mode") in LEGACY_METRIC_DEFAULTS or st.session_state.get("team_selector_sort_mode") == "Ensemble rank":
         st.session_state["team_selector_sort_mode"] = DEFAULT_SORT_MODE
+    bcar_scores = dict(zip(bcar_table["Team"], bcar_table["BCAR Score"])) if not bcar_table.empty else {}
+
     # Team profile selection
     default_team = "Evanston"
     default_compare_team = "New Trier"
@@ -2185,6 +2188,7 @@ def main():
     if opp == te or opp not in teams:
         opp = compare_teams[0] if compare_teams else None
         st.session_state["selected_compare_team"] = opp
+    team_resume = build_team_resume(te, games_inferred, bcar_scores, stats, h2h, sos)
     # Compute individual ranks
     ranks = {}
     ranks['win']  = win_ord.index(te)+1 if te in win_ord else None
@@ -2355,6 +2359,23 @@ def main():
                 f"Confidence context — Games: {team_conf_row['Games Confidence']:.1f}/100 · SOS: {team_conf_row['SOS Confidence']:.1f}/100 · Composite: {team_conf_row['Composite Confidence']:.1f}/100 ({team_conf_row['Confidence Tier']})"
             )
         st.caption(f"Shared context: {te} vs {opp}")
+        st.markdown("**Team resume**")
+        resume_summary = team_resume["summary"]
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Record", resume_summary["record"])
+        r2.metric("Goal Diff", f"{resume_summary['goal_diff']:+d}")
+        r3.metric("Streak", resume_summary["notable_streak"])
+        r4.metric("Vs ranked", resume_summary["ranked_opponent_split"])
+
+        top_wins_df = pd.DataFrame(team_resume["top_wins"])
+        worst_losses_df = pd.DataFrame(team_resume["worst_losses"])
+        wcol, lcol = st.columns(2)
+        with wcol:
+            st.caption("Top wins")
+            st.dataframe(top_wins_df[["opponent", "team_score", "opp_score", "margin", "quality"]], use_container_width=True)
+        with lcol:
+            st.caption("Worst losses")
+            st.dataframe(worst_losses_df[["opponent", "team_score", "opp_score", "margin", "negative_impact"]], use_container_width=True)
         h = h2h.get((te,opp),{'wins':0,'games':0})
         st.markdown(f"**H2H**: {h['wins']}-{h['games']-h['wins']} in {h['games']} games")
         st.caption("Head-to-head explorer: watch margin trend and whether recent meetings differ from overall record.")
