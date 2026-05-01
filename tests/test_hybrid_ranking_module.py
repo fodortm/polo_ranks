@@ -188,3 +188,43 @@ def test_predict_matchup_schema_and_deterministic_scoreline_ordering():
         prev_key = (-prev["probability"], prev["score_a"], prev["score_b"])
         curr_key = (-curr["probability"], curr["score_a"], curr["score_b"])
         assert prev_key <= curr_key
+
+
+def test_confidence_increases_with_more_games_for_similar_signal():
+    games = pd.DataFrame(
+        [
+            {"team_a": "Low", "team_b": "OppA", "goals_a": 2, "goals_b": 1, "venue": "neutral"},
+            {"team_a": "High", "team_b": "OppB", "goals_a": 2, "goals_b": 1, "venue": "neutral"},
+            {"team_a": "High", "team_b": "OppC", "goals_a": 2, "goals_b": 1, "venue": "neutral"},
+            {"team_a": "High", "team_b": "OppD", "goals_a": 2, "goals_b": 1, "venue": "neutral"},
+        ]
+    )
+    model = ScheduleAdjustedGoalStrengthRanker().fit(games)
+    table = model.rankings_table().set_index("team")
+
+    assert table.loc["Low", "games"] < table.loc["High", "games"]
+    assert table.loc["Low", "confidence"] < table.loc["High", "confidence"]
+
+
+def test_confidence_is_strictly_bounded_between_0_and_100_under_extreme_settings():
+    games = _load_hybrid_games()
+    model = ScheduleAdjustedGoalStrengthRanker(HybridRankingConfig(ridge_lambda=1e-6, k0=1e6)).fit(games)
+    confidence = model.rankings_table()["confidence"]
+
+    assert (confidence >= 0.0).all()
+    assert (confidence <= 100.0).all()
+
+
+def test_confidence_has_no_nan_with_pseudoinverse_fallback_on_singular_design():
+    games = pd.DataFrame(
+        [
+            {"team_a": "A", "team_b": "B", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+            {"team_a": "A", "team_b": "B", "goals_a": 1, "goals_b": 0, "venue": "neutral"},
+        ]
+    )
+    model = ScheduleAdjustedGoalStrengthRanker(HybridRankingConfig(ridge_lambda=0.0)).fit(games)
+    table = model.rankings_table()
+
+    assert model.solve_used_pinv_
+    assert table["confidence"].notna().all()
+    assert np.isfinite(table["confidence"]).all()
