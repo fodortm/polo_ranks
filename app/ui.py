@@ -92,6 +92,17 @@ def _init_dashboard_timeframe_state():
 def _sync_dashboard_timeframe_query_params():
     st.query_params["whole_season"] = "1" if st.session_state.get("dashboard_whole_season", False) else "0"
 
+
+def _is_admin_user():
+    query_flag = str(st.query_params.get("is_admin", "")).strip().lower()
+    if query_flag in {"1", "true", "t", "yes", "y"}:
+        return True
+
+    secret_flag = st.secrets.get("ui_admin_enabled", False)
+    if isinstance(secret_flag, bool):
+        return secret_flag
+    return str(secret_flag).strip().lower() in {"1", "true", "t", "yes", "y"}
+
 def sanitize_ensemble_weights(raw_weights):
     raw_weights = raw_weights or {}
     sanitized = {}
@@ -1933,51 +1944,112 @@ def main():
     pythag_cfg = config["pythag"]
     game_count_cfg = config["game_count"]
     sectional_cfg = {**SECTIONAL_SCORE_PARAMS, **config["sectional"]}
+    is_admin = _is_admin_user()
+
+    enable_overrides = False
+    k = int(logistic_cfg["k"])
+    x0 = float(logistic_cfg["x0"])
+    elo_k = int(elo_cfg.get("k", 22))
+    phase_k_enabled = bool(elo_cfg.get("phase_k_enabled", False))
+    early_phase_games = int(elo_cfg.get("early_phase_games", 40))
+    early_phase_multiplier = float(elo_cfg.get("early_phase_multiplier", 1.15))
+    late_phase_multiplier = float(elo_cfg.get("late_phase_multiplier", 0.9))
+    pythag_exp = float(pythag_cfg["exponent"])
+    include_estimated_scores = True
+    highlight_estimated_games = True
+    down_weight_imputed = False
+    imputed_weight = 0.5
+    min_games_ratio = float(game_count_cfg["min_games_ratio"])
+    ensemble_weight_elo = float(ensemble_weights_cfg["Elo"])
+    ensemble_weight_bcar = float(ensemble_weights_cfg["BCAR"])
+    ensemble_weight_adjpyth = float(ensemble_weights_cfg["AdjPyth"])
+    ensemble_weight_pyth = float(ensemble_weights_cfg["Pyth"])
+    ensemble_weight_win = float(ensemble_weights_cfg["Win"])
+    h2h_weight = float(sectional_cfg["h2h_weight"])
+    common_weight = float(sectional_cfg["common_weight"])
+    win_pct_weight = float(sectional_cfg["win_pct_weight"])
+    sos_center = float(sectional_cfg["sos_center"])
+    sos_scale = float(sectional_cfg["sos_scale"])
+    sectional_sos_boost = float(sectional_cfg["sectional_sos_boost"])
+    game_penalty_threshold = float(sectional_cfg["game_penalty_threshold"])
+    game_penalty_power = float(sectional_cfg["game_penalty_power"])
+    sectional_penalty_threshold = float(sectional_cfg["sectional_penalty_threshold"])
+    reliability_floor = float(sectional_cfg["reliability_floor"])
+    reliability_ceiling = float(sectional_cfg["reliability_ceiling"])
+    reliability_shrink_k = float(sectional_cfg["reliability_shrink_k"])
+    global_prior_min_weight = float(sectional_cfg["global_prior_min_weight"])
+    global_prior_max_weight = float(sectional_cfg["global_prior_max_weight"])
+    global_prior_shrink_k = float(sectional_cfg["global_prior_shrink_k"])
 
     with st.sidebar.expander("Advanced Settings", expanded=False):
-            enable_overrides = st.checkbox("Enable UI overrides", value=False)
-            k = st.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=int(logistic_cfg["k"]), disabled=not enable_overrides)
-            x0 = st.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=float(logistic_cfg["x0"]), step=0.05, disabled=not enable_overrides)
-            elo_k = st.slider("Elo K", min_value=1, max_value=64, value=int(elo_cfg.get("k", 22)), disabled=not enable_overrides)
-            phase_k_enabled = st.toggle("Enable phase-based Elo K", value=bool(elo_cfg.get("phase_k_enabled", False)), disabled=not enable_overrides)
-            early_phase_games = st.slider("Early-phase game count", min_value=0, max_value=200, value=int(elo_cfg.get("early_phase_games", 40)), disabled=(not enable_overrides or not phase_k_enabled))
-            early_phase_multiplier = st.slider("Early-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("early_phase_multiplier", 1.15)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
-            late_phase_multiplier = st.slider("Late-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("late_phase_multiplier", 0.9)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
-            pythag_exp = st.slider("Pythagorean Exponent", min_value=1.0, max_value=5.0, value=float(pythag_cfg["exponent"]), step=0.1, disabled=not enable_overrides)
-            include_estimated_scores = st.toggle("Include estimated scores", value=True)
-            highlight_estimated_games = st.toggle("Highlight estimated games", value=True)
-            down_weight_imputed = st.toggle("Down-weight inferred games", value=False)
-            imputed_weight = st.slider("Inferred game weight", min_value=0.0, max_value=1.0, value=0.5, step=0.05, disabled=(not down_weight_imputed))
-            min_games_ratio = st.slider("Min Games Ratio", min_value=0.1, max_value=1.0, value=float(game_count_cfg["min_games_ratio"]), step=0.05, disabled=not enable_overrides)
+            st.caption(f"Role gate: {'Admin' if is_admin else 'Read-only'}")
+            if not is_admin:
+                st.markdown(
+                    " ".join(
+                        [
+                            f"`Elo {ensemble_weight_elo:.2f}`",
+                            f"`BCAR {ensemble_weight_bcar:.2f}`",
+                            f"`AdjPyth {ensemble_weight_adjpyth:.2f}`",
+                            f"`Pyth {ensemble_weight_pyth:.2f}`",
+                            f"`Win% {ensemble_weight_win:.2f}`",
+                        ]
+                    )
+                )
+                st.markdown(
+                    " ".join(
+                        [
+                            f"`H2H {h2h_weight:.2f}`",
+                            f"`Common {common_weight:.2f}`",
+                            f"`Win% {win_pct_weight:.2f}`",
+                            f"`SOS boost {sectional_sos_boost:.2f}`",
+                        ]
+                    )
+                )
+                st.caption("Admin controls are hidden. Set query param `is_admin=1` or enable `ui_admin_enabled` in secrets.")
+            if is_admin:
+                enable_overrides = st.checkbox("Enable UI overrides", value=False)
+                k = st.slider("Logistic Steepness (k)", min_value=1, max_value=20, value=int(logistic_cfg["k"]), disabled=not enable_overrides)
+                x0 = st.slider("Logistic Midpoint (x0)", min_value=0.0, max_value=1.0, value=float(logistic_cfg["x0"]), step=0.05, disabled=not enable_overrides)
+                elo_k = st.slider("Elo K", min_value=1, max_value=64, value=int(elo_cfg.get("k", 22)), disabled=not enable_overrides)
+                phase_k_enabled = st.toggle("Enable phase-based Elo K", value=bool(elo_cfg.get("phase_k_enabled", False)), disabled=not enable_overrides)
+                early_phase_games = st.slider("Early-phase game count", min_value=0, max_value=200, value=int(elo_cfg.get("early_phase_games", 40)), disabled=(not enable_overrides or not phase_k_enabled))
+                early_phase_multiplier = st.slider("Early-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("early_phase_multiplier", 1.15)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
+                late_phase_multiplier = st.slider("Late-phase K multiplier", min_value=0.5, max_value=2.0, value=float(elo_cfg.get("late_phase_multiplier", 0.9)), step=0.05, disabled=(not enable_overrides or not phase_k_enabled))
+                pythag_exp = st.slider("Pythagorean Exponent", min_value=1.0, max_value=5.0, value=float(pythag_cfg["exponent"]), step=0.1, disabled=not enable_overrides)
+                include_estimated_scores = st.toggle("Include estimated scores", value=True)
+                highlight_estimated_games = st.toggle("Highlight estimated games", value=True)
+                down_weight_imputed = st.toggle("Down-weight inferred games", value=False)
+                imputed_weight = st.slider("Inferred game weight", min_value=0.0, max_value=1.0, value=0.5, step=0.05, disabled=(not down_weight_imputed))
+                min_games_ratio = st.slider("Min Games Ratio", min_value=0.1, max_value=1.0, value=float(game_count_cfg["min_games_ratio"]), step=0.05, disabled=not enable_overrides)
 
-            st.markdown("**Ensemble Weights**")
-            ensemble_weight_elo = st.slider("Ensemble Elo Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["Elo"]), step=0.01, disabled=not enable_overrides)
-            ensemble_weight_bcar = st.slider("Ensemble BCAR Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["BCAR"]), step=0.01, disabled=not enable_overrides)
-            ensemble_weight_adjpyth = st.slider("Ensemble AdjPyth Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["AdjPyth"]), step=0.01, disabled=not enable_overrides)
-            ensemble_weight_pyth = st.slider("Ensemble Pyth Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["Pyth"]), step=0.01, disabled=not enable_overrides)
-            ensemble_weight_win = st.slider("Ensemble Win% Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["Win"]), step=0.01, disabled=not enable_overrides)
+                st.markdown("**Ensemble Weights**")
+                ensemble_weight_elo = st.slider("Ensemble Elo Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["Elo"]), step=0.01, disabled=not enable_overrides)
+                ensemble_weight_bcar = st.slider("Ensemble BCAR Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["BCAR"]), step=0.01, disabled=not enable_overrides)
+                ensemble_weight_adjpyth = st.slider("Ensemble AdjPyth Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["AdjPyth"]), step=0.01, disabled=not enable_overrides)
+                ensemble_weight_pyth = st.slider("Ensemble Pyth Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["Pyth"]), step=0.01, disabled=not enable_overrides)
+                ensemble_weight_win = st.slider("Ensemble Win% Weight", min_value=0.0, max_value=1.0, value=float(ensemble_weights_cfg["Win"]), step=0.01, disabled=not enable_overrides)
 
-            st.markdown("**Sectional Weights**")
-            h2h_weight = st.slider("H2H Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["h2h_weight"]), step=0.05, disabled=not enable_overrides)
-            common_weight = st.slider("Common Opp Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["common_weight"]), step=0.05, disabled=not enable_overrides)
-            win_pct_weight = st.slider("Win% Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["win_pct_weight"]), step=0.05, disabled=not enable_overrides)
+                st.markdown("**Sectional Weights**")
+                h2h_weight = st.slider("H2H Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["h2h_weight"]), step=0.05, disabled=not enable_overrides)
+                common_weight = st.slider("Common Opp Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["common_weight"]), step=0.05, disabled=not enable_overrides)
+                win_pct_weight = st.slider("Win% Weight", min_value=0.0, max_value=1.0, value=float(sectional_cfg["win_pct_weight"]), step=0.05, disabled=not enable_overrides)
 
-            st.markdown("**SOS Multiplier Range**")
-            sos_center = st.slider("SOS Center", min_value=0.0, max_value=1.0, value=float(sectional_cfg["sos_center"]), step=0.05, disabled=not enable_overrides)
-            sos_scale = st.slider("SOS Scale", min_value=0.0, max_value=4.0, value=float(sectional_cfg["sos_scale"]), step=0.1, disabled=not enable_overrides)
-            sectional_sos_boost = st.slider("Sectional SOS Boost", min_value=0.5, max_value=2.0, value=float(sectional_cfg["sectional_sos_boost"]), step=0.05, disabled=not enable_overrides)
+                st.markdown("**SOS Multiplier Range**")
+                sos_center = st.slider("SOS Center", min_value=0.0, max_value=1.0, value=float(sectional_cfg["sos_center"]), step=0.05, disabled=not enable_overrides)
+                sos_scale = st.slider("SOS Scale", min_value=0.0, max_value=4.0, value=float(sectional_cfg["sos_scale"]), step=0.1, disabled=not enable_overrides)
+                sectional_sos_boost = st.slider("Sectional SOS Boost", min_value=0.5, max_value=2.0, value=float(sectional_cfg["sectional_sos_boost"]), step=0.05, disabled=not enable_overrides)
 
-            st.markdown("**Penalty Exponents & Thresholds**")
-            game_penalty_threshold = st.slider("Game Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["game_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
-            game_penalty_power = st.slider("Game Penalty Exponent", min_value=0.5, max_value=4.0, value=float(sectional_cfg["game_penalty_power"]), step=0.1, disabled=not enable_overrides)
-            sectional_penalty_threshold = st.slider("Sectional Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["sectional_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
-            reliability_floor = st.slider("Reliability Floor", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_floor"]), step=0.05, disabled=not enable_overrides)
-            reliability_ceiling = st.slider("Reliability Ceiling", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_ceiling"]), step=0.05, disabled=not enable_overrides)
-            reliability_shrink_k = st.slider("Reliability Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["reliability_shrink_k"]), step=0.5, disabled=not enable_overrides)
-            st.markdown("**Global Prior Blend**")
-            global_prior_min_weight = st.slider("Global Prior Min Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_min_weight"]), step=0.01, disabled=not enable_overrides)
-            global_prior_max_weight = st.slider("Global Prior Max Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_max_weight"]), step=0.01, disabled=not enable_overrides)
-            global_prior_shrink_k = st.slider("Global Prior Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["global_prior_shrink_k"]), step=0.5, disabled=not enable_overrides)
+                st.markdown("**Penalty Exponents & Thresholds**")
+                game_penalty_threshold = st.slider("Game Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["game_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
+                game_penalty_power = st.slider("Game Penalty Exponent", min_value=0.5, max_value=4.0, value=float(sectional_cfg["game_penalty_power"]), step=0.1, disabled=not enable_overrides)
+                sectional_penalty_threshold = st.slider("Sectional Penalty Threshold", min_value=0.1, max_value=1.0, value=float(sectional_cfg["sectional_penalty_threshold"]), step=0.05, disabled=not enable_overrides)
+                reliability_floor = st.slider("Reliability Floor", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_floor"]), step=0.05, disabled=not enable_overrides)
+                reliability_ceiling = st.slider("Reliability Ceiling", min_value=0.0, max_value=1.0, value=float(sectional_cfg["reliability_ceiling"]), step=0.05, disabled=not enable_overrides)
+                reliability_shrink_k = st.slider("Reliability Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["reliability_shrink_k"]), step=0.5, disabled=not enable_overrides)
+                st.markdown("**Global Prior Blend**")
+                global_prior_min_weight = st.slider("Global Prior Min Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_min_weight"]), step=0.01, disabled=not enable_overrides)
+                global_prior_max_weight = st.slider("Global Prior Max Weight", min_value=0.0, max_value=0.5, value=float(sectional_cfg["global_prior_max_weight"]), step=0.01, disabled=not enable_overrides)
+                global_prior_shrink_k = st.slider("Global Prior Shrinkage (k)", min_value=0.5, max_value=20.0, value=float(sectional_cfg["global_prior_shrink_k"]), step=0.5, disabled=not enable_overrides)
     active_sectional_params = {
         **sectional_cfg,
         "h2h_weight": h2h_weight,
