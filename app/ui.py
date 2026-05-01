@@ -1828,7 +1828,7 @@ def build_primary_ranking_payload(teams, model_orders, stats, h2h, sos, team_imp
 
 def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
-    is_deep_dive = False
+    is_deep_dive = str(st.query_params.get("debug_sectionals", "0")).strip().lower() in {"1", "true", "yes", "y"}
 
     nav_options = ["Dashboard", "Team Profile", "Rank Tables", "Sectionals"]
     nav_labels = {
@@ -2789,7 +2789,9 @@ def main():
         })
         st.dataframe(df_strength)
         
-        # Display individual sectional rankings with detailed breakdowns
+        st.caption("Sectional ordering uses BCAR-weighted scoring with in-season head-to-head guardrails.")
+
+        # Display individual sectional rankings
         for sectional in sectional_order:
             st.markdown(f"### {sectional} Sectional")
             teams = sectional_rankings[sectional]
@@ -2820,60 +2822,57 @@ def main():
             })
             st.dataframe(df_sectional)
             
-            # Detailed breakdown for each team
-            st.markdown("#### Detailed Seeding Analysis")
-            for team in teams:
-                if team not in stats:
-                    continue
-                    
-                with st.expander(f"{team} - Detailed Seeding Analysis"):
-                    breakdown = sectional_breakdowns[sectional][team]
-                    h2h_score = breakdown["h2h_score"]
-                    common_win_pct = breakdown["common_opponent_score"]
-                    common_wins_weighted = breakdown["common_wins_weighted"]
-                    common_games = breakdown["common_games"]
-                    win_pct = breakdown["win_pct"]
-                    game_penalty = breakdown["penalties"]["game_penalty"]
-                    sectional_penalty = breakdown["penalties"]["sectional_penalty"]
-                    
-                    # Display factors with updated weights
-                    col1, col2, col3, col4 = st.columns(4)
-                    with col1:
-                        st.metric("Team Momentum" if not is_deep_dive else "H2H (45%)", f"{h2h_score:.3f}", help="How well this team has done in direct matchups that matter for seeding.")
-                    with col2:
-                        st.metric("Scoring Strength" if not is_deep_dive else "Common Opp (Non-Sectional, 45%)", f"{common_wins_weighted:.1f}/{common_games}", f"{common_win_pct:.3f}", help="Performance against shared opponents helps estimate overall strength.")
-                    with col3:
-                        st.metric("Schedule Difficulty" if not is_deep_dive else "Win % (10%)", f"{win_pct:.3f}", help="Teams are adjusted for the quality and difficulty of opponents faced.")
-                    with col4:
-                        penalties = []
-                        if game_penalty < 1.0:
-                            penalties.append(f"Games: {game_penalty:.2f}x")
-                        if sectional_penalty < 1.0:
-                            penalties.append(f"Sectional: {sectional_penalty:.2f}x")
-                        st.metric("Penalties", "None" if not penalties else ", ".join(penalties))
-                    
-                    # Combined score
-                    st.metric("Combined Score", f"{breakdown['combined_score']:.3f}")
-                    
-                    # Head-to-head details
-                    st.markdown("##### Head-to-Head Details")
-                    if breakdown["h2h_details"]:
-                        st.dataframe(pd.DataFrame(breakdown["h2h_details"]))
-                    else:
-                        st.write("No head-to-head games played")
-                    
-                    # Common opponents details
-                    st.markdown("##### Non-Sectional Common Opponents (Used in Common Opp Score)")
-                    if breakdown["non_sectional_common_details"]:
-                        st.dataframe(pd.DataFrame(breakdown["non_sectional_common_details"]))
-                    else:
-                        st.write("No non-sectional common opponents")
-                    
-                    st.markdown("##### Sectional Matchups (Reported for Transparency, Counted in H2H)")
-                    if breakdown["sectional_common_details"]:
-                        st.dataframe(pd.DataFrame(breakdown["sectional_common_details"]))
-                    else:
-                        st.write("No sectional common opponents")
+            # Detailed breakdown for each team (internal debug mode only)
+            if is_deep_dive:
+                st.markdown("#### Detailed Seeding Analysis (Internal Debug)")
+                for team in teams:
+                    if team not in stats:
+                        continue
+
+                    with st.expander(f"{team} - Detailed Seeding Analysis"):
+                        breakdown = sectional_breakdowns[sectional][team]
+                        h2h_score = breakdown["h2h_score"]
+                        common_win_pct = breakdown["common_opponent_score"]
+                        common_wins_weighted = breakdown["common_wins_weighted"]
+                        common_games = breakdown["common_games"]
+                        win_pct = breakdown["win_pct"]
+                        game_penalty = breakdown["penalties"]["game_penalty"]
+                        sectional_penalty = breakdown["penalties"]["sectional_penalty"]
+
+                        col1, col2, col3, col4 = st.columns(4)
+                        with col1:
+                            st.metric("H2H (45%)", f"{h2h_score:.3f}")
+                        with col2:
+                            st.metric("Common Opp (Non-Sectional, 45%)", f"{common_wins_weighted:.1f}/{common_games}", f"{common_win_pct:.3f}")
+                        with col3:
+                            st.metric("Win % (10%)", f"{win_pct:.3f}")
+                        with col4:
+                            penalties = []
+                            if game_penalty < 1.0:
+                                penalties.append(f"Games: {game_penalty:.2f}x")
+                            if sectional_penalty < 1.0:
+                                penalties.append(f"Sectional: {sectional_penalty:.2f}x")
+                            st.metric("Penalties", "None" if not penalties else ", ".join(penalties))
+
+                        st.metric("Combined Score", f"{breakdown['combined_score']:.3f}")
+
+                        st.markdown("##### Head-to-Head Details")
+                        if breakdown["h2h_details"]:
+                            st.dataframe(pd.DataFrame(breakdown["h2h_details"]))
+                        else:
+                            st.write("No head-to-head games played")
+
+                        st.markdown("##### Non-Sectional Common Opponents (Used in Common Opp Score)")
+                        if breakdown["non_sectional_common_details"]:
+                            st.dataframe(pd.DataFrame(breakdown["non_sectional_common_details"]))
+                        else:
+                            st.write("No non-sectional common opponents")
+
+                        st.markdown("##### Sectional Matchups (Reported for Transparency, Counted in H2H)")
+                        if breakdown["sectional_common_details"]:
+                            st.dataframe(pd.DataFrame(breakdown["sectional_common_details"]))
+                        else:
+                            st.write("No sectional common opponents")
 
 
 if __name__ == "__main__":
