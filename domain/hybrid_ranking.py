@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Dict, Iterable, Optional
+from typing import Dict, Iterable, Literal, Optional
 
 import numpy as np
 import pandas as pd
@@ -28,6 +28,7 @@ class ScheduleAdjustedGoalStrengthRanker:
     def __init__(self, config: Optional[HybridRankingConfig] = None) -> None:
         self.config = config or HybridRankingConfig()
         self._is_fit = False
+        self._matchup_model = None
         self.fit_warnings_: list[str] = []
 
     def fit(self, games_df: pd.DataFrame, game_weights: Optional[Iterable[float]] = None) -> "ScheduleAdjustedGoalStrengthRanker":
@@ -133,8 +134,50 @@ class ScheduleAdjustedGoalStrengthRanker:
         if np.any(self.games_played_ < 2):
             self.fit_warnings_.append("very small sample size for one or more teams")
 
+        # lazy import to avoid circular import at module load time
+        from domain.matchup_model import PoissonAttackDefenseMatchupModel
+
+        self._matchup_model = PoissonAttackDefenseMatchupModel(ranking_model=self).fit(games)
         self._is_fit = True
         return self
+
+    def predict_matchup(
+        self,
+        team_a: str,
+        team_b: str,
+        venue: Literal["home", "away", "neutral"] = "neutral",
+        max_goals: int = 10,
+    ) -> dict[str, object]:
+        if not self._is_fit or self._matchup_model is None:
+            raise RuntimeError("Model must be fit before calling predict_matchup().")
+        if venue not in {"home", "away", "neutral"}:
+            raise ValueError("venue must be one of: home, away, neutral")
+
+        prediction = self._matchup_model.predict_matchup(
+            team_a=team_a,
+            team_b=team_b,
+            venue=venue,
+            max_goals=max_goals,
+        )
+
+        ordered_scorelines = sorted(
+            prediction["top_scorelines"],
+            key=lambda x: (-x["probability"], x["score_a"], x["score_b"]),
+        )
+
+        return {
+            "expected_goals_a": prediction["expected_goals_a"],
+            "expected_goals_b": prediction["expected_goals_b"],
+            "p_win": prediction["p_win"],
+            "p_draw": prediction["p_draw"],
+            "p_loss": prediction["p_loss"],
+            "top_scorelines": ordered_scorelines,
+            "goal_diff_interval_50": prediction["goal_diff_interval_50"],
+            "goal_diff_interval_80": prediction["goal_diff_interval_80"],
+            "total_goals_interval_50": prediction["total_goals_interval_50"],
+            "total_goals_interval_80": prediction["total_goals_interval_80"],
+            "matchup_confidence": prediction["matchup_confidence"],
+        }
 
     def rankings(self) -> pd.DataFrame:
         return self.rankings_table()
