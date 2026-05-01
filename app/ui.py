@@ -515,7 +515,6 @@ def render_dashboard_header_kpis(kpi, metric_lens, metric_format):
 
 
 def render_dashboard_controls(preset_defaults):
-    st.markdown("### Global dashboard controls")
     st.radio("Persona preset", options=["Custom", "Fan", "Coach", "Analyst"], horizontal=True, key="dashboard_persona")
     selected_persona = st.session_state["dashboard_persona"]
     if selected_persona in preset_defaults and preset_defaults[selected_persona]:
@@ -2068,9 +2067,6 @@ def main():
 
     # Tabs & content
     if current_nav == "Dashboard":
-        render_typography("title", "Dashboard")
-        render_typography("subtitle", "League pulse with interactive metric charts and rank trends")
-
         if "dashboard_top_n" not in st.session_state:
             st.session_state["dashboard_top_n"] = 10
         if "dashboard_time_window" not in st.session_state:
