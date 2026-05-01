@@ -37,6 +37,29 @@ DEFAULT_ENSEMBLE_WEIGHTS = {
 }
 
 
+
+def _normalize_whole_season_flag(raw_value):
+    if isinstance(raw_value, bool):
+        return raw_value
+    if raw_value is None:
+        return False
+    normalized = str(raw_value).strip().lower()
+    return normalized in {"1", "true", "t", "yes", "y", "all", "season", "whole"}
+
+
+def _init_dashboard_timeframe_state():
+    whole_season_from_url = _normalize_whole_season_flag(st.query_params.get("whole_season"))
+    if "dashboard_whole_season" not in st.session_state:
+        st.session_state["dashboard_whole_season"] = whole_season_from_url
+    elif whole_season_from_url != st.session_state["dashboard_whole_season"]:
+        st.session_state["dashboard_whole_season"] = whole_season_from_url
+
+    st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
+
+
+def _sync_dashboard_timeframe_query_params():
+    st.query_params["whole_season"] = "1" if st.session_state.get("dashboard_whole_season", False) else "0"
+
 def sanitize_ensemble_weights(raw_weights):
     raw_weights = raw_weights or {}
     sanitized = {}
@@ -517,7 +540,9 @@ def render_dashboard_header_kpis(kpi, metric_lens, metric_format):
 def render_dashboard_controls():
     ctl_a, ctl_b, ctl_c = st.columns(3)
     ctl_a.checkbox("Top 10 only", key="dashboard_top10_only")
-    ctl_b.selectbox("Time window", options=["Last 4 weeks", "All"], key="dashboard_time_window")
+    ctl_b.checkbox("Whole season", key="dashboard_whole_season")
+    st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
+    _sync_dashboard_timeframe_query_params()
     ctl_c.selectbox("Metric lens", options=["Win%", "Adj Pyth", "Elo", "Ensemble"], key="dashboard_metric_lens")
     with st.expander("Advanced options", expanded=False):
         st.caption("Tune advanced chart density controls for trend and movement panels.")
@@ -2062,8 +2087,7 @@ def main():
     if current_nav == "Dashboard":
         if "dashboard_top10_only" not in st.session_state:
             st.session_state["dashboard_top10_only"] = False
-        if "dashboard_time_window" not in st.session_state:
-            st.session_state["dashboard_time_window"] = "Last 4 weeks"
+        _init_dashboard_timeframe_state()
         if "dashboard_metric_lens" not in st.session_state:
             st.session_state["dashboard_metric_lens"] = "Ensemble"
         # Backward-compatible cleanup: ignore legacy persona state from prior sessions/links.
@@ -2072,8 +2096,9 @@ def main():
         # Safe fallback for persisted/linked state values outside the current control options.
         if not isinstance(st.session_state["dashboard_top10_only"], bool):
             st.session_state["dashboard_top10_only"] = False
-        if st.session_state["dashboard_time_window"] not in ["Last 4 weeks", "All"]:
-            st.session_state["dashboard_time_window"] = "Last 4 weeks"
+        if not isinstance(st.session_state.get("dashboard_whole_season"), bool):
+            st.session_state["dashboard_whole_season"] = False
+        st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
         if st.session_state["dashboard_metric_lens"] not in ["Win%", "Adj Pyth", "Elo", "Ensemble"]:
             st.session_state["dashboard_metric_lens"] = "Ensemble"
 
@@ -2145,7 +2170,11 @@ def main():
             st.session_state["dashboard_weekly_metric"] = "Ensemble"
         trend_metric = st.selectbox("Trend metric", ["Ensemble", "Win %", "Adjusted Pyth", "Elo"], key="dashboard_weekly_metric")
         trend_n = st.slider("Teams to show", min_value=5, max_value=max(5, len(dashboard_order)), value=min(12, len(dashboard_order)), key="dashboard_weekly_top_n")
-        trend_window = st.selectbox("Trend time frame", ["Last 4 weeks", "All"], key="dashboard_weekly_window")
+        if "dashboard_weekly_window" not in st.session_state:
+            st.session_state["dashboard_weekly_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
+        st.session_state["dashboard_weekly_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
+        trend_window = st.session_state["dashboard_weekly_window"]
+        st.caption(f"Trend time frame: {trend_window}")
         weekly_all = compute_weekly_rank_history(DATA_DIR)
         if not weekly_all.empty:
             max_week = int(weekly_all["week_num"].max())
