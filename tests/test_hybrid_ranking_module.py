@@ -90,3 +90,52 @@ def test_low_sample_teams_have_larger_se_than_high_information_teams():
 
     assert table.loc["Alpha", "games"] < table.loc["Echo", "games"]
     assert table.loc["Alpha", "rating_se"] > table.loc["Echo", "rating_se"]
+
+
+def test_predict_matchup_requires_fit():
+    model = ScheduleAdjustedGoalStrengthRanker()
+    try:
+        model.predict_matchup("Alpha", "Bravo")
+        raise AssertionError("Expected RuntimeError when calling predict_matchup before fit")
+    except RuntimeError as exc:
+        assert "fit before calling predict_matchup" in str(exc)
+
+
+def test_predict_matchup_validates_venue():
+    games = _load_hybrid_games()
+    model = ScheduleAdjustedGoalStrengthRanker().fit(games)
+
+    try:
+        model.predict_matchup("Alpha", "Bravo", venue="mars")  # type: ignore[arg-type]
+        raise AssertionError("Expected ValueError for invalid venue")
+    except ValueError as exc:
+        assert "venue must be one of" in str(exc)
+
+
+def test_predict_matchup_schema_and_deterministic_scoreline_ordering():
+    games = _load_hybrid_games()
+    model = ScheduleAdjustedGoalStrengthRanker().fit(games)
+    pred = model.predict_matchup("Alpha", "Bravo", venue="neutral", max_goals=8)
+
+    assert set(pred.keys()) == {
+        "expected_goals_a",
+        "expected_goals_b",
+        "p_win",
+        "p_draw",
+        "p_loss",
+        "top_scorelines",
+        "goal_diff_interval_50",
+        "goal_diff_interval_80",
+        "total_goals_interval_50",
+        "total_goals_interval_80",
+        "matchup_confidence",
+    }
+
+    scorelines = pred["top_scorelines"]
+    assert isinstance(scorelines, list)
+    for idx in range(1, len(scorelines)):
+        prev = scorelines[idx - 1]
+        curr = scorelines[idx]
+        prev_key = (-prev["probability"], prev["score_a"], prev["score_b"])
+        curr_key = (-curr["probability"], curr["score_a"], curr["score_b"])
+        assert prev_key <= curr_key
