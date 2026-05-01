@@ -25,4 +25,6 @@ def test_build_team_resume_orders_wins_and_losses_deterministically():
     assert resume["summary"]["goal_diff"] == -2
     assert resume["summary"]["notable_streak"] == "L3"
     assert [w["opponent"] for w in resume["top_wins"]][:3] == ["B", "C", "D"]
-    assert [l["opponent"] for l in resume["worst_losses"]][:3] == ["G", "E", "F"]
+    assert [l["opponent"] for l in resume["worst_losses"]][:3] == ["F", "E", "G"]
+    assert [l["opponent"] for l in resume["best_losses"]][:3] == ["G", "E", "F"]
+    assert [w["opponent"] for w in resume["worst_wins"]][:3] == ["D", "C", "B"]

@@ -2441,13 +2441,30 @@ def main():
 
         top_wins_df = pd.DataFrame(team_resume["top_wins"])
         worst_losses_df = pd.DataFrame(team_resume["worst_losses"])
-        wcol, lcol = st.columns(2)
-        with wcol:
+        best_losses_df = pd.DataFrame(team_resume["best_losses"])
+        worst_wins_df = pd.DataFrame(team_resume["worst_wins"])
+
+        table_cols = ["opponent", "team_score", "opp_score", "margin", "quality"]
+        for df in [top_wins_df, worst_losses_df, best_losses_df, worst_wins_df]:
+            for col in table_cols:
+                if col not in df.columns:
+                    df[col] = pd.Series(dtype=float if col in {"margin", "quality"} else object)
+
+        rw1, rw2 = st.columns(2)
+        with rw1:
             st.caption("Top wins")
-            st.dataframe(top_wins_df[["opponent", "team_score", "opp_score", "margin", "quality"]], use_container_width=True)
-        with lcol:
+            st.dataframe(top_wins_df[table_cols], use_container_width=True)
+        with rw2:
             st.caption("Worst losses")
-            st.dataframe(worst_losses_df[["opponent", "team_score", "opp_score", "margin", "negative_impact"]], use_container_width=True)
+            st.dataframe(worst_losses_df[table_cols], use_container_width=True)
+
+        rw3, rw4 = st.columns(2)
+        with rw3:
+            st.caption("Best losses")
+            st.dataframe(best_losses_df[table_cols], use_container_width=True)
+        with rw4:
+            st.caption("Worst wins")
+            st.dataframe(worst_wins_df[table_cols], use_container_width=True)
         h = h2h.get((te,opp),{'wins':0,'games':0})
         st.markdown(f"**H2H**: {h['wins']}-{h['games']-h['wins']} in {h['games']} games")
         st.caption("Head-to-head explorer: watch margin trend and whether recent meetings differ from overall record.")

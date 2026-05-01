@@ -59,8 +59,16 @@ def build_team_resume(team, games_df, bcar_scores, stats, h2h, sos):
     )[: max(3, min(len(wins), 5))]
     worst_losses = sorted(
         losses,
-        key=lambda g: (-g["negative_impact"], -g["margin"], g["opponent"], g["team_score"], g["opp_score"]),
+        key=lambda g: (g["quality"], g["margin"], g["opponent"], g["team_score"], g["opp_score"]),
     )[: max(3, min(len(losses), 5))]
+    best_losses = sorted(
+        losses,
+        key=lambda g: (-g["quality"], -g["margin"], g["opponent"], g["team_score"], g["opp_score"]),
+    )[: max(3, min(len(losses), 5))]
+    worst_wins = sorted(
+        wins,
+        key=lambda g: (g["quality"], g["margin"], g["opponent"], g["team_score"], g["opp_score"]),
+    )[: max(3, min(len(wins), 5))]
 
     tstats = stats.get(team, {})
     opponents = sorted({g["opponent"] for g in team_games if g["opponent"] in bcar_scores}, key=lambda t: (-bcar_scores[t], t))
@@ -83,5 +91,7 @@ def build_team_resume(team, games_df, bcar_scores, stats, h2h, sos):
         "team": team,
         "top_wins": top_wins,
         "worst_losses": worst_losses,
+        "best_losses": best_losses,
+        "worst_wins": worst_wins,
         "summary": summary,
     }
