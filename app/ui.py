@@ -514,20 +514,13 @@ def render_dashboard_header_kpis(kpi, metric_lens, metric_format):
     render_kpi_card(hero_cols[5], "Estimated games", kpi["inferred_results"], caption="Games where scores were inferred from model defaults.")
 
 
-def render_dashboard_controls(preset_defaults):
-    st.radio("Persona preset", options=["Custom", "Fan", "Coach", "Analyst"], horizontal=True, key="dashboard_persona")
-    selected_persona = st.session_state["dashboard_persona"]
-    if selected_persona in preset_defaults and preset_defaults[selected_persona]:
-        persona_cfg = preset_defaults[selected_persona]
-        st.session_state["dashboard_top_n"] = persona_cfg["top_n"]
-        st.session_state["dashboard_time_window"] = persona_cfg["time_window"]
-        st.session_state["dashboard_metric_lens"] = persona_cfg["metric_lens"]
+def render_dashboard_controls():
     ctl_a, ctl_b, ctl_c = st.columns(3)
     ctl_a.selectbox("Top N", options=[10, 15, 25], key="dashboard_top_n")
     ctl_b.selectbox("Time window", options=["Last 4 weeks", "All"], key="dashboard_time_window")
     ctl_c.selectbox("Metric lens", options=["Win%", "Adj Pyth", "Elo", "Ensemble"], key="dashboard_metric_lens")
     with st.expander("Advanced options", expanded=False):
-        st.caption("Persona presets set sensible defaults; choose Custom to preserve manual overrides.")
+        st.caption("Tune advanced chart density controls for trend and movement panels.")
         trend_top_n = st.slider("Trend teams shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_trend_top_n")
         movement_top_n = st.slider("Movement rows shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_movement_top_n")
     return trend_top_n, movement_top_n
@@ -2073,16 +2066,18 @@ def main():
             st.session_state["dashboard_time_window"] = "Last 4 weeks"
         if "dashboard_metric_lens" not in st.session_state:
             st.session_state["dashboard_metric_lens"] = "Ensemble"
-        if "dashboard_persona" not in st.session_state:
-            st.session_state["dashboard_persona"] = "Custom"
+        # Backward-compatible cleanup: ignore legacy persona state from prior sessions/links.
+        st.session_state.pop("dashboard_persona", None)
 
-        preset_defaults = {
-            "Fan": {"top_n": 10, "time_window": "Last 4 weeks", "metric_lens": "Ensemble"},
-            "Coach": {"top_n": 15, "time_window": "Last 4 weeks", "metric_lens": "Adj Pyth"},
-            "Analyst": {"top_n": 25, "time_window": "All", "metric_lens": "Elo"},
-            "Custom": None,
-        }
-        trend_top_n, movement_top_n = render_dashboard_controls(preset_defaults)
+        # Safe fallback for persisted/linked state values outside the current control options.
+        if st.session_state["dashboard_top_n"] not in [10, 15, 25]:
+            st.session_state["dashboard_top_n"] = 10
+        if st.session_state["dashboard_time_window"] not in ["Last 4 weeks", "All"]:
+            st.session_state["dashboard_time_window"] = "Last 4 weeks"
+        if st.session_state["dashboard_metric_lens"] not in ["Win%", "Adj Pyth", "Elo", "Ensemble"]:
+            st.session_state["dashboard_metric_lens"] = "Ensemble"
+
+        trend_top_n, movement_top_n = render_dashboard_controls()
 
         metric_lens = st.session_state["dashboard_metric_lens"]
         if metric_lens == "Adj Pyth":
