@@ -1720,15 +1720,22 @@ def main():
     is_deep_dive = False
 
     nav_options = ["Dashboard", "Team Profile", "Rank Tables", "Sectionals"]
+    nav_labels = {
+        "Dashboard": "Overview",
+        "Team Profile": "Teams",
+        "Rank Tables": "Rankings",
+        "Sectionals": "Sectionals",
+    }
     if "primary_nav" not in st.session_state or st.session_state["primary_nav"] not in nav_options:
         st.session_state["primary_nav"] = "Dashboard"
-    st.markdown("### Primary Navigation")
-    st.radio(
-        "Go to",
-        options=nav_options,
-        horizontal=True,
-        key="primary_nav",
-    )
+
+    nav_cols = st.columns(len(nav_options), gap="small")
+    for col, nav_key in zip(nav_cols, nav_options):
+        is_active = st.session_state["primary_nav"] == nav_key
+        button_kind = "primary" if is_active else "secondary"
+        if col.button(nav_labels[nav_key], key=f"primary_nav_btn_{nav_key}", use_container_width=True, type=button_kind):
+            st.session_state["primary_nav"] = nav_key
+
     current_nav = st.session_state["primary_nav"]
     config = load_model_config()
     ensemble_weights_cfg = sanitize_ensemble_weights(config.get("ensemble_weights", {}))
