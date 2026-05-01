@@ -33,6 +33,29 @@ DEFAULT_WEEKLY_TREND_METRIC = "BCAR"
 DEFAULT_SORT_MODE = "BCAR"
 LEGACY_METRIC_DEFAULTS = {"Ensemble", "Ensemble (Primary)", "Win%", "Win %"}
 
+METRIC_LENS_OPTIONS = [
+    "BCAR",
+    "Elo",
+    "Ensemble",
+    "Win%",
+    "Adj Pyth",
+]
+METRIC_OPTION_LABELS = {
+    "BCAR": "BCAR (Recommended default)",
+    "Elo": "ELO (Secondary / backup)",
+    "Ensemble": "Ensemble Score (Secondary / backup)",
+    "Win%": "Win% (Secondary / backup)",
+    "Adj Pyth": "Adj Pyth (Secondary / backup)",
+}
+WEEKLY_TREND_OPTIONS = ["BCAR", "Elo", "Ensemble", "Win %", "Adjusted Pyth"]
+WEEKLY_TREND_LABELS = {
+    "BCAR": "BCAR (Recommended default)",
+    "Elo": "ELO (Secondary / backup)",
+    "Ensemble": "Ensemble Score (Secondary / backup)",
+    "Win %": "Win % (Secondary / backup)",
+    "Adjusted Pyth": "Adjusted Pyth (Secondary / backup)",
+}
+
 
 DEFAULT_ENSEMBLE_WEIGHTS = {
     "Elo": 0.40,
@@ -549,7 +572,13 @@ def render_dashboard_controls():
     ctl_b.checkbox("Whole season", key="dashboard_whole_season")
     st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
     _sync_dashboard_timeframe_query_params()
-    ctl_c.selectbox("Metric lens", options=["BCAR", "Win%", "Adj Pyth", "Elo", "Ensemble"], key="dashboard_metric_lens")
+    ctl_c.selectbox(
+        "Metric lens",
+        options=METRIC_LENS_OPTIONS,
+        key="dashboard_metric_lens",
+        format_func=lambda key: METRIC_OPTION_LABELS.get(key, key),
+        help="BCAR is the recommended default for ranking decisions. Secondary methods remain available for cross-checking.",
+    )
     with st.expander("Advanced options", expanded=False):
         st.caption("Tune advanced chart density controls for trend and movement panels.")
         trend_top_n = st.slider("Trend teams shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_trend_top_n")
@@ -2115,7 +2144,7 @@ def main():
         if not isinstance(st.session_state.get("dashboard_whole_season"), bool):
             st.session_state["dashboard_whole_season"] = False
         st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
-        if st.session_state["dashboard_metric_lens"] not in ["Win%", "Adj Pyth", "Elo", "Ensemble"]:
+        if st.session_state["dashboard_metric_lens"] not in METRIC_LENS_OPTIONS:
             st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
 
         trend_top_n, movement_top_n = render_dashboard_controls()
@@ -2189,7 +2218,13 @@ def main():
         st.subheader("Weekly rank trend")
         if "dashboard_weekly_metric" not in st.session_state:
             st.session_state["dashboard_weekly_metric"] = DEFAULT_WEEKLY_TREND_METRIC
-        trend_metric = st.selectbox("Trend metric", ["BCAR", "Ensemble", "Win %", "Adjusted Pyth", "Elo"], key="dashboard_weekly_metric")
+        trend_metric = st.selectbox(
+            "Trend metric",
+            WEEKLY_TREND_OPTIONS,
+            key="dashboard_weekly_metric",
+            format_func=lambda key: WEEKLY_TREND_LABELS.get(key, key),
+            help="BCAR is the recommended/default trend lens; secondary methods are retained for cross-check validation.",
+        )
         trend_n = st.slider("Teams to show", min_value=5, max_value=max(5, len(dashboard_order)), value=min(12, len(dashboard_order)), key="dashboard_weekly_top_n")
         if "dashboard_weekly_window" not in st.session_state:
             st.session_state["dashboard_weekly_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
