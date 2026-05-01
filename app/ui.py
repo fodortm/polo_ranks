@@ -893,6 +893,92 @@ def compute_confidence_adjusted_bayesian_rank(
     order = df["Team"].tolist()
     return {"order": order, "table": df}
 
+@st.cache_data
+def compute_hybrid_rankings(games, stats, h2h, sos, params):
+    teams = sorted(stats.keys())
+    if not teams:
+        return {"order": [], "table": pd.DataFrame(), "ratings": {}}
+    k0 = float(params.get("k0", 0.55))
+    epsilon = float(params.get("epsilon", 1e-6))
+    margin_scale_s = max(float(params.get("margin_scale_s", 4.0)), 1e-6)
+    ridge_lambda = max(float(params.get("ridge_lambda", 0.08)), 0.0)
+    lambda_sos_max = float(params.get("lambda_sos_max", 0.25))
+    lambda_sov = float(params.get("lambda_sov", 0.35))
+    lambda_var = float(params.get("lambda_var", 0.15))
+    home_advantage = float(params.get("home_advantage", 0.0))
+    poisson_reg = float(params.get("poisson_regularization", 0.2))
+    bcar_bundle = compute_confidence_adjusted_bayesian_rank(games, stats)
+    bcar_lookup = bcar_bundle["table"].set_index("Team") if not bcar_bundle["table"].empty else pd.DataFrame()
+    rows = []
+    for t in teams:
+        g = max(stats[t]["games"], 1)
+        gd_pg = (stats[t]["gf"] - stats[t]["ga"]) / g
+        win_pct = stats[t]["win_pct"]
+        sos_term = sos.get(t, 0.0)
+        margins = []
+        opp_strength = []
+        for r in games.itertuples():
+            if r.team1 == t:
+                m, opp = float(r.score1) - float(r.score2), r.team2
+            elif r.team2 == t:
+                m, opp = float(r.score2) - float(r.score1), r.team1
+            else:
+                continue
+            margins.append(m)
+            opp_strength.append(stats.get(opp, {}).get("win_pct", 0.0))
+        sov = (sum(max(0.0, m) * os_ for m, os_ in zip(margins, opp_strength)) / max(len(margins), 1)) if margins else 0.0
+        var_pen = (pd.Series(margins).std(ddof=0) if len(margins) >= 2 else 0.0)
+        bcar_strength = float(bcar_lookup.at[t, "Strength"]) if (not bcar_lookup.empty and t in bcar_lookup.index) else 0.0
+        rating = (k0 * win_pct) + ((1.0 - k0) * math.tanh((gd_pg + home_advantage) / margin_scale_s))
+        rating += lambda_sos_max * sos_term + lambda_sov * sov + 0.20 * bcar_strength
+        rating -= (lambda_var * var_pen + ridge_lambda * (1.0 / math.sqrt(g + epsilon)))
+        rating_se = max(epsilon, math.sqrt((var_pen + poisson_reg) / g))
+        ci_low, ci_high = rating - 1.96 * rating_se, rating + 1.96 * rating_se
+        confidence = max(0.0, min(100.0, 100.0 * (1.0 - min(1.0, rating_se / max(abs(rating), 0.75)))))
+        rows.append({
+            "Team": t, "rating": rating, "rating_se": rating_se, "ci_low": ci_low, "ci_high": ci_high,
+            "confidence": confidence, "strength_of_schedule": sos_term, "strength_of_victory": sov,
+            "volatility_penalty": var_pen,
+        })
+    df = pd.DataFrame(rows).sort_values("rating", ascending=False).reset_index(drop=True)
+    df["Rank"] = df.index + 1
+    return {"order": df["Team"].tolist(), "table": df, "ratings": dict(zip(df["Team"], df["rating"]))}
+
+def poisson_pmf(k, lam):
+    return math.exp(-lam) * (lam ** k) / math.factorial(k)
+
+def build_hybrid_matchup_projection(team_a, team_b, stats, hybrid_ratings, params):
+    ga = max(stats[team_a]["games"], 1)
+    gb = max(stats[team_b]["games"], 1)
+    a_for = stats[team_a]["gf"] / ga
+    a_against = stats[team_a]["ga"] / ga
+    b_for = stats[team_b]["gf"] / gb
+    b_against = stats[team_b]["ga"] / gb
+    base_a = max(0.2, (a_for + b_against) / 2.0)
+    base_b = max(0.2, (b_for + a_against) / 2.0)
+    rating_delta = hybrid_ratings.get(team_a, 0.0) - hybrid_ratings.get(team_b, 0.0)
+    boost = math.tanh(rating_delta)
+    lam_a = max(0.2, base_a * (1.0 + 0.25 * boost))
+    lam_b = max(0.2, base_b * (1.0 - 0.25 * boost))
+    max_goals = 8
+    p_win = p_draw = p_loss = 0.0
+    score_probs = []
+    for i in range(max_goals + 1):
+        pi = poisson_pmf(i, lam_a)
+        for j in range(max_goals + 1):
+            p = pi * poisson_pmf(j, lam_b)
+            if i > j: p_win += p
+            elif i == j: p_draw += p
+            else: p_loss += p
+            score_probs.append((i, j, p))
+    top_scores = sorted(score_probs, key=lambda x: x[2], reverse=True)[:5]
+    exp_gd = lam_a - lam_b
+    exp_total = lam_a + lam_b
+    gd_interval = (exp_gd - 1.96 * math.sqrt(exp_total), exp_gd + 1.96 * math.sqrt(exp_total))
+    tg_interval = (max(0.0, exp_total - 1.96 * math.sqrt(exp_total)), exp_total + 1.96 * math.sqrt(exp_total))
+    confidence = max(0.0, min(100.0, 100.0 * abs(p_win - p_loss)))
+    return {"lam_a": lam_a, "lam_b": lam_b, "p_win": p_win, "p_draw": p_draw, "p_loss": p_loss, "top_scores": top_scores, "gd_interval": gd_interval, "tg_interval": tg_interval, "confidence": confidence}
+
 # ---------------- Rankings ---------------- #
 @st.cache_data
 def rank_win_pct(stats,h2h):
@@ -1666,6 +1752,7 @@ def main():
         "max_rank_shift": 2,
         "team_adjustments": {}
     })
+    hybrid_cfg = config.get("hybrid", {})
 
     # Sidebar settings
     st.sidebar.header("Data & Model Settings")
@@ -1890,6 +1977,9 @@ def main():
     bcar_bundle = compute_confidence_adjusted_bayesian_rank(games_inferred, stats)
     bcar_ord = [t for t in bcar_bundle["order"] if stats[t]["games"] >= thr]
     bcar_table = bcar_bundle["table"][bcar_bundle["table"]["Team"].isin(bcar_ord)].reset_index(drop=True)
+    hybrid_bundle = compute_hybrid_rankings(games_inferred, stats, h2h, sos, hybrid_cfg)
+    hybrid_ord = [t for t in hybrid_bundle["order"] if stats[t]["games"] >= thr]
+    hybrid_table = hybrid_bundle["table"][hybrid_bundle["table"]["Team"].isin(hybrid_ord)].reset_index(drop=True)
     model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "BCAR": bcar_ord, "Elo": elo_ord}
     global_prior_teams = [t for t in teams if t in win_ord and t in py_ord and t in adj_ord and t in bcar_ord and t in elo_ord]
     global_prior_df = build_calibrated_ensemble(global_prior_teams, model_orders, stats, h2h, sos, team_imputation, ensemble_base_weights=ensemble_weights_cfg, win_model_cap=win_model_cap_cfg, ensemble_breadth_cfg=ensemble_breadth_cfg, expert_nudge_cfg=expert_nudge_cfg)
@@ -2072,8 +2162,8 @@ def main():
         return
 
     section_defaults = {"Team Profile": "Profile", "Rank Tables": "Ensemble (Primary)", "Sectionals": "Sectionals"}
-    all_sections = ["Profile","Ensemble (Primary)","Win%","Pythag","AdjPyth","Elo","BCAR","Sectionals"]
-    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Ensemble (Primary)","Win%","Pythag","AdjPyth","Elo","BCAR"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
+    all_sections = ["Profile","Ensemble (Primary)","Win%","Pythag","AdjPyth","Elo","BCAR","Hybrid","Sectionals"]
+    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Ensemble (Primary)","Win%","Pythag","AdjPyth","Elo","BCAR","Hybrid"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
     default_section = section_defaults.get(current_nav, "Profile")
     if "content_section" not in st.session_state or st.session_state["content_section"] not in available_sections:
         st.session_state["content_section"] = default_section if default_section in available_sections else available_sections[0]
@@ -2081,7 +2171,7 @@ def main():
     st.radio("View", options=available_sections, horizontal=True, key="content_section")
     selected_section = st.session_state["content_section"]
     table_sort_mode = st.session_state.get("rank_table_sort_mode", "Ensemble rank")
-    if selected_section in ["Win%", "Pythag", "AdjPyth", "Elo", "BCAR", "Ensemble (Primary)"]:
+    if selected_section in ["Win%", "Pythag", "AdjPyth", "Elo", "BCAR", "Hybrid", "Ensemble (Primary)"]:
         table_sort_mode = st.radio(
             "Team order",
             options=sort_modes,
@@ -2200,6 +2290,16 @@ def main():
             if highlight_estimated_games:
                 matchup_view["Badge"] = matchup_view["Inferred"].map(lambda x: "🧩" if x else "")
             st.dataframe(matchup_view, use_container_width=True)
+        if te in hybrid_bundle["ratings"] and opp in hybrid_bundle["ratings"]:
+            st.markdown("**Hybrid matchup outlook**")
+            proj = build_hybrid_matchup_projection(te, opp, stats, hybrid_bundle["ratings"], hybrid_cfg)
+            c1, c2, c3 = st.columns(3)
+            c1.metric("Expected goals", f"{te} {proj['lam_a']:.2f} - {proj['lam_b']:.2f} {opp}")
+            c2.metric("W / D / L", f"{proj['p_win']:.1%} / {proj['p_draw']:.1%} / {proj['p_loss']:.1%}")
+            c3.metric("Matchup confidence", f"{proj['confidence']:.1f}")
+            st.caption(f"Expected GD interval: [{proj['gd_interval'][0]:+.2f}, {proj['gd_interval'][1]:+.2f}] · Total goals interval: [{proj['tg_interval'][0]:.2f}, {proj['tg_interval'][1]:.2f}]")
+            top_scores_df = pd.DataFrame([{"Scoreline": f"{te} {a} - {b} {opp}", "Probability": p} for a, b, p in proj["top_scores"]])
+            st.dataframe(top_scores_df, use_container_width=True, hide_index=True)
         st.write(f"{opp} default rank #{primary_payload['rank_lookup'].get(opp, '-')} (Ensemble {primary_payload['score_lookup'].get(opp, 0.0):.3f}) | "
                  f"legacy Win% #{win_ord.index(opp)+1 if opp in win_ord else '-'}, "
                  f"Pyth #{py_ord.index(opp)+1 if opp in py_ord else '-'}, AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'}, Elo #{elo_ord.index(opp)+1 if opp in elo_ord else '-'}")
@@ -2324,6 +2424,20 @@ def main():
             bcar_view_df = bcar_table.set_index("Team").loc[bcar_view].reset_index()
             st.dataframe(bcar_view_df[show_cols], use_container_width=True, hide_index=True)
             st.caption(f"Context overlay: {te} rank #{primary_payload['rank_lookup'].get(te, '-')} vs {opp} rank #{primary_payload['rank_lookup'].get(opp, '-')} (primary)")
+
+    if selected_section == "Hybrid":
+        st.subheader("Rankings by Hybrid")
+        if hybrid_table.empty:
+            st.info("No hybrid rows available for the current minimum-games threshold.")
+        else:
+            hybrid_view = [t for t in table_order if t in set(hybrid_table["Team"].tolist())]
+            hybrid_view_df = hybrid_table.set_index("Team").loc[hybrid_view].reset_index()
+            st.dataframe(
+                hybrid_view_df[["Rank", "Team", "rating", "rating_se", "ci_low", "ci_high", "confidence", "strength_of_schedule", "strength_of_victory", "volatility_penalty"]],
+                use_container_width=True,
+                hide_index=True,
+            )
+            st.caption(f"Context overlay: {te} rank #{(hybrid_ord.index(te)+1) if te in hybrid_ord else '-'} vs {opp} rank #{(hybrid_ord.index(opp)+1) if opp in hybrid_ord else '-'}")
     
     if selected_section == "Ensemble (Primary)":
         st.subheader("Rankings by Ensemble (Primary)")
