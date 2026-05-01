@@ -11,6 +11,7 @@ import streamlit as st
 import altair as alt
 
 from domain.parsing import discover_score_files, is_skippable_line, load_parser_config, normalize_team_name, parse_game_line_anchored
+from domain.hybrid_ranking import HybridRankingConfig, ScheduleAdjustedGoalStrengthRanker
 
 # ---------------- Constants ---------------- #
 SCORES_CSV = "scores.csv"
@@ -31,6 +32,7 @@ DEFAULT_PRIMARY_METRIC = "BCAR"
 DEFAULT_DASHBOARD_METRIC_LENS = "BCAR"
 DEFAULT_WEEKLY_TREND_METRIC = "BCAR"
 DEFAULT_SORT_MODE = "BCAR"
+DEFAULT_HYBRID_UI_MODEL = "Legacy Hybrid"
 LEGACY_METRIC_DEFAULTS = {"Ensemble", "Ensemble (Primary)", "Win%", "Win %"}
 
 METRIC_LENS_OPTIONS = [
@@ -1031,6 +1033,42 @@ def build_hybrid_matchup_projection(team_a, team_b, stats, hybrid_ratings, param
     confidence = max(0.0, min(100.0, 100.0 * abs(p_win - p_loss)))
     return {"lam_a": lam_a, "lam_b": lam_b, "p_win": p_win, "p_draw": p_draw, "p_loss": p_loss, "top_scores": top_scores, "gd_interval": gd_interval, "tg_interval": tg_interval, "confidence": confidence}
 
+
+def _to_schedule_adjusted_games(games: pd.DataFrame) -> pd.DataFrame:
+    cols = ["team1", "team2", "score1", "score2"]
+    base = games[cols].dropna(subset=["score1", "score2"]).copy()
+    return base.rename(columns={"team1": "team_a", "team2": "team_b", "score1": "goals_a", "score2": "goals_b"})
+
+
+@st.cache_data
+def compute_schedule_adjusted_hybrid(games: pd.DataFrame, params: dict) -> dict:
+    converted = _to_schedule_adjusted_games(games)
+    if converted.empty:
+        return {"order": [], "table": pd.DataFrame(), "model": None}
+    cfg = HybridRankingConfig(
+        ridge_lambda=max(float(params.get("ridge_lambda", 4.0)), 0.0),
+        k0=float(params.get("k0", 8.0)),
+        eps=float(params.get("epsilon", 1e-6)),
+        margin_scale=max(float(params.get("margin_scale_s", 1.0)), 1e-6),
+        lambda_sos_max=float(params.get("lambda_sos_max", 0.25)),
+        lambda_sov=float(params.get("lambda_sov", 0.2)),
+        lambda_var=float(params.get("lambda_var", 0.1)),
+        use_home_indicator=bool(params.get("use_home_indicator", True)),
+    )
+    model = ScheduleAdjustedGoalStrengthRanker(cfg).fit(converted)
+    table = model.rankings_table().rename(
+        columns={
+            "team": "Team",
+            "rating_ci_low": "ci_low",
+            "rating_ci_high": "ci_high",
+            "sos": "strength_of_schedule",
+            "sov": "strength_of_victory",
+            "volatility": "volatility_penalty",
+        }
+    )
+    table["Rank"] = table.index + 1
+    return {"order": table["Team"].tolist(), "table": table, "model": model}
+
 # ---------------- Rankings ---------------- #
 @st.cache_data
 def rank_win_pct(stats,h2h):
@@ -1995,6 +2033,13 @@ def main():
         st.caption("Active model configuration for reproducibility")
         st.caption("Win% is intentionally low-trust in composite scoring and receives an additional reliability cap in the ensemble.")
         st.json(active_config)
+    hybrid_ui_model = st.sidebar.selectbox(
+        "Hybrid model",
+        options=["Legacy Hybrid", "Schedule-adjusted Hybrid"],
+        index=0,
+        help="Defaults to the legacy hybrid flow. Select schedule-adjusted to enable the newer fit/prediction UI.",
+        key="hybrid_ui_model",
+    )
     with st.sidebar.expander("Expert Orders", expanded=False):
         st.caption("Paste Top 25 lists (one team per line; numbering optional) to compare model fit.")
         illpolo_text = st.text_area("Illpolo order", height=180, key="illpolo_order_text")
@@ -2057,6 +2102,8 @@ def main():
     bcar_ord = [t for t in bcar_bundle["order"] if stats[t]["games"] >= thr]
     bcar_table = bcar_bundle["table"][bcar_bundle["table"]["Team"].isin(bcar_ord)].reset_index(drop=True)
     hybrid_bundle = compute_hybrid_rankings(games_inferred, stats, h2h, sos, hybrid_cfg)
+    if hybrid_ui_model == "Schedule-adjusted Hybrid":
+        hybrid_bundle = compute_schedule_adjusted_hybrid(games_inferred, hybrid_cfg)
     hybrid_ord = [t for t in hybrid_bundle["order"] if stats[t]["games"] >= thr]
     hybrid_table = hybrid_bundle["table"][hybrid_bundle["table"]["Team"].isin(hybrid_ord)].reset_index(drop=True)
     model_orders = {"Win": win_ord, "Pyth": py_ord, "AdjPyth": adj_ord, "BCAR": bcar_ord, "Elo": elo_ord}
@@ -2533,6 +2580,7 @@ def main():
 
     if selected_section == "Hybrid":
         st.subheader("Rankings by Hybrid")
+        st.caption(f"Active hybrid model: {hybrid_ui_model}")
         if hybrid_table.empty:
             st.info("No hybrid rows available for the current minimum-games threshold.")
         else:
@@ -2544,6 +2592,27 @@ def main():
                 hide_index=True,
             )
             st.caption(f"Context overlay: {te} rank #{(hybrid_ord.index(te)+1) if te in hybrid_ord else '-'} vs {opp} rank #{(hybrid_ord.index(opp)+1) if opp in hybrid_ord else '-'}")
+            if hybrid_ui_model == "Schedule-adjusted Hybrid":
+                st.markdown("#### Matchup projection")
+                venue = st.selectbox("Venue", options=["neutral", "home", "away"], index=0, key="hybrid_matchup_venue")
+                max_goals = st.slider("Max goals per team", min_value=6, max_value=14, value=10, key="hybrid_matchup_max_goals")
+                model = hybrid_bundle.get("model")
+                if model is not None and opp is not None:
+                    pred = model.predict_matchup(te, opp, venue=venue, max_goals=max_goals)
+                    st.write(
+                        f"Expected goals — {te}: {pred['expected_goals_a']:.2f}, {opp}: {pred['expected_goals_b']:.2f}"
+                    )
+                    st.write(
+                        f"W/D/L — {te}: {pred['p_win']:.1%}, Draw: {pred['p_draw']:.1%}, {opp}: {pred['p_loss']:.1%}"
+                    )
+                    st.write(
+                        f"Goal diff intervals (50/80): {pred['goal_diff_interval_50']} / {pred['goal_diff_interval_80']}"
+                    )
+                    st.write(
+                        f"Total goals intervals (50/80): {pred['total_goals_interval_50']} / {pred['total_goals_interval_80']}"
+                    )
+                    st.write(f"Matchup confidence: {pred['matchup_confidence']:.1f}/100")
+                    st.dataframe(pd.DataFrame(pred["top_scorelines"]), use_container_width=True, hide_index=True)
     
     if selected_section == "Ensemble (Primary)":
         st.subheader("Rank Table Summary")
