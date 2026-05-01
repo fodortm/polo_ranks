@@ -2326,13 +2326,52 @@ def main():
             st.caption(f"Context overlay: {te} rank #{primary_payload['rank_lookup'].get(te, '-')} vs {opp} rank #{primary_payload['rank_lookup'].get(opp, '-')} (primary)")
     
     if selected_section == "Ensemble (Primary)":
-        st.subheader("Rankings by Ensemble (Primary)")
+        st.subheader("Rank Table Summary")
         df_avg = primary_payload["table"]
         df_avg_view = df_avg.set_index("Team").loc[[t for t in table_order if t in set(df_avg["Team"].tolist())]].reset_index()
-        df_avg_display = df_avg_view.rename(columns={"Calibrated Score": "Ensemble Score", "Weight Elo": "Elo Contribution", "Weight BCAR": "BCAR Contribution", "Weight AdjPyth": "AdjPyth Contribution", "Weight Pyth": "Pyth Contribution", "Weight Win": "Win Contribution"})
-        st.dataframe(df_avg_display[[
-            "Rank", "Team", "Ensemble Score", "Games Confidence", "SOS Confidence", "Composite Confidence", "Confidence Tier", "Elo Contribution", "BCAR Contribution", "AdjPyth Contribution", "Pyth Contribution", "Win Contribution", "SOS"
-        ]], use_container_width=True, hide_index=True)
+        team_list = df_avg_view["Team"].tolist()
+        summary_df = pd.DataFrame({
+            "Team": team_list,
+            "Ensemble Rank": [primary_payload["rank_lookup"].get(t) for t in team_list],
+            "Win Rank": [win_ord.index(t) + 1 if t in win_ord else None for t in team_list],
+            "Pyth Rank": [py_ord.index(t) + 1 if t in py_ord else None for t in team_list],
+            "AdjPyth Rank": [adj_ord.index(t) + 1 if t in adj_ord else None for t in team_list],
+            "Elo Rank": [elo_ord.index(t) + 1 if t in elo_ord else None for t in team_list],
+            "BCAR Rank": [bcar_ord.index(t) + 1 if t in bcar_ord else None for t in team_list],
+            "SOS": [sos.get(t, 0.0) for t in team_list],
+            "Games": [stats.get(t, {}).get("games", 0) for t in team_list],
+            "Record": [f"{stats[t]['wins']}-{stats[t]['losses']}-{stats[t]['ties']}" if t in stats else "0-0-0" for t in team_list],
+            "Confidence": [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in team_list],
+        })
+        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        st.caption("Summary view includes all model ranks, SOS, and resume context.")
+
+        st.markdown("#### Worst-to-best bar view (longer bars = worse rank)")
+        bar_df = summary_df[["Team", "Ensemble Rank"]].dropna().copy()
+        if not bar_df.empty:
+            max_rank = int(bar_df["Ensemble Rank"].max())
+            bar_df["Worstness"] = bar_df["Ensemble Rank"].astype(float)
+            bar_df["Team Label"] = bar_df["Team"]
+            worst_chart = alt.Chart(bar_df).mark_bar().encode(
+                y=alt.Y("Team:N", sort=alt.EncodingSortField(field="Ensemble Rank", order="descending"), title=None),
+                x=alt.X("Worstness:Q", title="Rank distance from best (0 starts at left)", scale=alt.Scale(domain=[0, max_rank])),
+                tooltip=["Team", "Ensemble Rank"]
+            )
+            team_labels = alt.Chart(bar_df).mark_text(align="left", baseline="middle", dx=4).encode(
+                y=alt.Y("Team:N", sort=alt.EncodingSortField(field="Ensemble Rank", order="descending")),
+                x=alt.X("Worstness:Q"),
+                text="Team Label:N"
+            )
+            st.altair_chart((worst_chart + team_labels).properties(height=max(420, 22 * len(bar_df))), use_container_width=True)
+
+        st.markdown("#### Visual extras")
+        rank_scatter = alt.Chart(summary_df.dropna(subset=["SOS", "Ensemble Rank"])).mark_circle(size=85, opacity=0.8).encode(
+            x=alt.X("SOS:Q", title="Strength of Schedule (SOS)"),
+            y=alt.Y("Ensemble Rank:Q", title="Ensemble Rank", scale=alt.Scale(reverse=True)),
+            color=alt.Color("Confidence:N", title="Confidence"),
+            tooltip=["Team", "Ensemble Rank", "SOS", "Win Rank", "Pyth Rank", "AdjPyth Rank", "Elo Rank", "BCAR Rank"]
+        ).properties(height=320)
+        st.altair_chart(rank_scatter, use_container_width=True)
         if opp:
             st.caption(f"Context overlay (Ensemble Primary): {te} rank #{primary_payload['rank_lookup'].get(te, '-')} vs {opp} rank #{primary_payload['rank_lookup'].get(opp, '-')}")
         render_primary_rank_caption_block()
