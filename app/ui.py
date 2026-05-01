@@ -597,7 +597,7 @@ def render_rank_overview_panel(dashboard_vm, metric_label, metric_format):
         dashboard_table = top_n_df.rename(columns={"Calibrated Score": "Ensemble Score"})
         show_cols = [c for c in preferred_cols if c in dashboard_table.columns]
         if show_cols:
-            st.dataframe(dashboard_table[show_cols], use_container_width=True, hide_index=True)
+            st.dataframe(format_confidence_columns(dashboard_table[show_cols]), use_container_width=True, hide_index=True)
         render_primary_rank_caption_block()
 
 
@@ -1468,6 +1468,26 @@ def confidence_tier_label(confidence_score):
         return "Moderate"
     return "Low"
 
+
+
+
+def confidence_tier_badge(tier):
+    palette = {
+        "High": "🟢 High",
+        "Moderate": "🟡 Moderate",
+        "Low": "🔴 Low",
+    }
+    return palette.get(str(tier), str(tier))
+
+
+def format_confidence_columns(df):
+    formatted = df.copy()
+    for col in ["Games Confidence", "SOS Confidence", "Composite Confidence", "Confidence"]:
+        if col in formatted.columns:
+            formatted[col] = pd.to_numeric(formatted[col], errors="coerce").round(1)
+    if "Confidence Tier" in formatted.columns:
+        formatted["Confidence Tier"] = formatted["Confidence Tier"].map(confidence_tier_badge)
+    return formatted
 
 def compute_ensemble_confidence(team, stats, h2h, sos, team_imputation, all_teams):
     _, _, games_ratio, _, imp_ratio = build_confidence_badge(team, stats, h2h, team_imputation, all_teams)
@@ -2530,6 +2550,11 @@ def main():
         df_avg = primary_payload["table"]
         df_avg_view = df_avg.set_index("Team").loc[[t for t in table_order if t in set(df_avg["Team"].tolist())]].reset_index()
         team_list = df_avg_view["Team"].tolist()
+        df_avg_lookup = df_avg_view.set_index("Team")
+        games_conf_series = df_avg_lookup.get("Games Confidence", pd.Series(dtype=float))
+        sos_conf_series = df_avg_lookup.get("SOS Confidence", pd.Series(dtype=float))
+        composite_conf_series = df_avg_lookup.get("Composite Confidence", pd.Series(dtype=float))
+        tier_series = df_avg_lookup.get("Confidence Tier", pd.Series(dtype=object))
         summary_df = pd.DataFrame({
             "Team": team_list,
             "Ensemble Rank": [primary_payload["rank_lookup"].get(t) for t in team_list],
@@ -2541,9 +2566,12 @@ def main():
             "SOS": [sos.get(t, 0.0) for t in team_list],
             "Games": [stats.get(t, {}).get("games", 0) for t in team_list],
             "Record": [f"{stats[t]['wins']}-{stats[t]['losses']}-{stats[t]['ties']}" if t in stats else "0-0-0" for t in team_list],
-            "Confidence": [build_confidence_badge(t, stats, h2h, team_imputation, teams)[0] for t in team_list],
+            "Games Confidence": [games_conf_series.get(t, float("nan")) for t in team_list],
+            "SOS Confidence": [sos_conf_series.get(t, float("nan")) for t in team_list],
+            "Composite Confidence": [composite_conf_series.get(t, float("nan")) for t in team_list],
+            "Confidence Tier": [tier_series.get(t, "") for t in team_list],
         })
-        st.dataframe(summary_df, use_container_width=True, hide_index=True)
+        st.dataframe(format_confidence_columns(summary_df), use_container_width=True, hide_index=True)
         st.caption("Summary view includes all model ranks, SOS, and resume context.")
 
         st.markdown("#### Worst-to-best bar view (longer bars = worse rank)")
