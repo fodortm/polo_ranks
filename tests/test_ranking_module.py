@@ -110,3 +110,12 @@ def test_backward_compatible_weights_when_bcar_missing_from_config():
     assert "BCAR" in weights
     assert weights["BCAR"] > 0
     assert abs(sum(weights.values()) - 1.0) < 1e-9
+
+
+def test_hybrid_symbols_importable_from_domain_ranking():
+    from domain.hybrid_ranking import HybridRankingConfig, ScheduleAdjustedGoalStrengthRanker
+    from domain.ranking import HybridRankingConfig as ExportedHybridRankingConfig
+    from domain.ranking import ScheduleAdjustedGoalStrengthRanker as ExportedScheduleAdjustedGoalStrengthRanker
+
+    assert ExportedHybridRankingConfig is HybridRankingConfig
+    assert ExportedScheduleAdjustedGoalStrengthRanker is ScheduleAdjustedGoalStrengthRanker
