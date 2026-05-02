@@ -73,3 +73,4 @@ Lyons 6 York 5 (OT)
 Palatine 9 NC 4
 York 12 LWE 4
 Stevenson 15 Palatine 7
+Maine South 9 Niles West 8
