@@ -1841,15 +1841,17 @@ def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
     is_deep_dive = str(st.query_params.get("debug_sectionals", "0")).strip().lower() in {"1", "true", "yes", "y"}
 
-    nav_options = ["Dashboard", "Team Profile", "Rank Tables", "Sectionals"]
+    nav_options = ["Rankings", "Team Profile", "Matchup Insights"]
+    if _is_admin_user():
+        nav_options.append("Admin / Internal")
     nav_labels = {
-        "Dashboard": "Overview",
+        "Rankings": "Rankings",
         "Team Profile": "Teams",
-        "Rank Tables": "Rankings",
-        "Sectionals": "Sectionals",
+        "Matchup Insights": "Matchups",
+        "Admin / Internal": "Admin",
     }
     if "primary_nav" not in st.session_state or st.session_state["primary_nav"] not in nav_options:
-        st.session_state["primary_nav"] = "Dashboard"
+        st.session_state["primary_nav"] = "Rankings"
 
     nav_cols = st.columns(len(nav_options), gap="small")
     for col, nav_key in zip(nav_cols, nav_options):
@@ -2272,7 +2274,7 @@ def main():
     
 
     # Tabs & content
-    if current_nav == "Dashboard":
+    if current_nav == "Rankings":
         if "dashboard_top10_only" not in st.session_state:
             st.session_state["dashboard_top10_only"] = False
         _init_dashboard_timeframe_state()
@@ -2387,10 +2389,20 @@ def main():
             st.info("No weekly rank history available.")
         return
 
-    section_defaults = {"Team Profile": "Profile", "Rank Tables": "Ensemble (Primary)", "Sectionals": "Sectionals"}
-    all_sections = ["Profile","Ensemble (Primary)","Win%","Pythag","AdjPyth","Elo","BCAR","Hybrid","Sectionals"]
-    available_sections = {"Team Profile": ["Profile"], "Rank Tables": ["Ensemble (Primary)","Win%","Pythag","AdjPyth","Elo","BCAR","Hybrid"], "Sectionals": ["Sectionals"]}.get(current_nav, all_sections)
-    default_section = section_defaults.get(current_nav, "Profile")
+    section_defaults = {
+        "Rankings": "BCAR",
+        "Team Profile": "Profile",
+        "Matchup Insights": "Matchup Insights",
+        "Admin / Internal": "Sectionals",
+    }
+    all_sections = ["BCAR", "Profile", "Matchup Insights", "Sectionals", "Win%", "Pythag", "AdjPyth", "Elo", "Hybrid", "Ensemble (Primary)"]
+    available_sections = {
+        "Rankings": ["BCAR"],
+        "Team Profile": ["Profile"],
+        "Matchup Insights": ["Matchup Insights"],
+        "Admin / Internal": ["Sectionals", "Win%", "Pythag", "AdjPyth", "Elo", "Hybrid", "Ensemble (Primary)"],
+    }.get(current_nav, all_sections)
+    default_section = section_defaults.get(current_nav, "BCAR")
     if "content_section" not in st.session_state or st.session_state["content_section"] not in available_sections:
         st.session_state["content_section"] = default_section if default_section in available_sections else available_sections[0]
     st.markdown("### Content")
@@ -2721,9 +2733,43 @@ def main():
                     st.write(
                         f"Total goals intervals (50/80): {pred['total_goals_interval_50']} / {pred['total_goals_interval_80']}"
                     )
-                    st.write(f"Matchup confidence: {pred['matchup_confidence']:.1f}/100")
-                    st.dataframe(pd.DataFrame(pred["top_scorelines"]), use_container_width=True, hide_index=True)
-    
+            st.write(f"Matchup confidence: {pred['matchup_confidence']:.1f}/100")
+
+    if selected_section == "Matchup Insights":
+        st.subheader("Matchup Insights")
+        st.caption(f"Head-to-head history: {te} vs {opp}")
+        if h2h_record["games"] > 0:
+            st.write(f"Record: {h2h_record['wins']}-{h2h_record['losses']} in {h2h_record['games']} games")
+        else:
+            st.write("No direct head-to-head games logged yet.")
+
+        st.markdown("**Common opponents**")
+        common_rows = []
+        te_opponents = {k for k in matchup_agg.get(te, {}) if k != opp}
+        opp_opponents = {k for k in matchup_agg.get(opp, {}) if k != te}
+        shared_opponents = sorted(te_opponents.intersection(opp_opponents))
+        for common_opp in shared_opponents:
+            te_split = matchup_agg.get(te, {}).get(common_opp, {"wins": 0, "games": 0})
+            opp_split = matchup_agg.get(opp, {}).get(common_opp, {"wins": 0, "games": 0})
+            common_rows.append(
+                {
+                    "Opponent": common_opp,
+                    f"{te} record": f"{te_split['wins']}-{te_split['games'] - te_split['wins']}",
+                    f"{opp} record": f"{opp_split['wins']}-{opp_split['games'] - opp_split['wins']}",
+                }
+            )
+        if common_rows:
+            st.dataframe(pd.DataFrame(common_rows), use_container_width=True, hide_index=True)
+        else:
+            st.caption("No common-opponent overlap available yet.")
+
+        st.markdown("**Forecast**")
+        proj = project_matchup(te, opp, stats, sos, elo, adj_vals, primary_payload["table"])
+        c1, c2, c3 = st.columns(3)
+        c1.metric(f"{te} win prob", f"{proj['team_a_win_prob']:.1%}")
+        c2.metric(f"{opp} win prob", f"{proj['team_b_win_prob']:.1%}")
+        c3.metric("Matchup confidence", f"{proj['confidence']:.1f}")
+
     if selected_section == "Ensemble (Primary)":
         st.subheader("Rank Table Summary")
         df_avg = primary_payload["table"]
