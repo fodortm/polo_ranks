@@ -1321,6 +1321,83 @@ def compute_shared_opponent_score(team, valid_teams, team_vectors, stats, p):
 
     return observed_score, total_games, detail_rows
 
+
+def summarize_common_opponents(team_a, team_b, matchup_agg):
+    """Build common-opponent resume details for two teams.
+
+    Returns:
+        dict with:
+            - shared_opponents: sorted list of shared opponents
+            - team_a_record: aggregate W-L vs shared opponents
+            - team_b_record: aggregate W-L vs shared opponents
+            - normalized_edge_score: in [0, 1], 0.5 is neutral
+            - confidence_note: reliability note when overlap is sparse
+            - detail_rows: table-ready rows by shared opponent
+    """
+
+    def _record_vs(src_team, opp_team):
+        nested_rec = matchup_agg.get(src_team, {}).get(opp_team)
+        if nested_rec is not None:
+            wins = int(nested_rec.get("wins", 0))
+            games = int(nested_rec.get("games", 0))
+            losses = max(games - wins, 0)
+            return {"wins": wins, "losses": losses, "games": games}
+
+        tuple_rec = matchup_agg.get((src_team, opp_team), {"wins": 0, "losses": 0, "games": 0})
+        wins = int(tuple_rec.get("wins", 0))
+        losses = int(tuple_rec.get("losses", 0))
+        games = int(tuple_rec.get("games", wins + losses))
+        return {"wins": wins, "losses": losses, "games": games}
+
+    team_a_opponents = {k for k in matchup_agg.get(team_a, {}) if k != team_b}
+    team_b_opponents = {k for k in matchup_agg.get(team_b, {}) if k != team_a}
+    shared_opponents = sorted(team_a_opponents.intersection(team_b_opponents))
+
+    detail_rows = []
+    team_a_tot_wins = team_a_tot_losses = 0
+    team_b_tot_wins = team_b_tot_losses = 0
+    total_shared_games = 0
+
+    for shared_opp in shared_opponents:
+        rec_a = _record_vs(team_a, shared_opp)
+        rec_b = _record_vs(team_b, shared_opp)
+        team_a_tot_wins += rec_a["wins"]
+        team_a_tot_losses += rec_a["losses"]
+        team_b_tot_wins += rec_b["wins"]
+        team_b_tot_losses += rec_b["losses"]
+        total_shared_games += rec_a["games"] + rec_b["games"]
+        detail_rows.append(
+            {
+                "Opponent": shared_opp,
+                f"{team_a} record": f"{rec_a['wins']}-{rec_a['losses']}",
+                f"{team_b} record": f"{rec_b['wins']}-{rec_b['losses']}",
+            }
+        )
+
+    team_a_games = team_a_tot_wins + team_a_tot_losses
+    team_b_games = team_b_tot_wins + team_b_tot_losses
+    team_a_win_rate = (team_a_tot_wins / team_a_games) if team_a_games else 0.5
+    team_b_win_rate = (team_b_tot_wins / team_b_games) if team_b_games else 0.5
+    normalized_edge_score = 0.5 + ((team_a_win_rate - team_b_win_rate) / 2.0)
+    normalized_edge_score = min(max(normalized_edge_score, 0.0), 1.0)
+
+    confidence_note = ""
+    if not shared_opponents:
+        confidence_note = "No shared-opponent overlap yet."
+    elif total_shared_games < 6:
+        confidence_note = "Low confidence: very small shared-opponent sample."
+    elif total_shared_games < 12:
+        confidence_note = "Moderate confidence: shared-opponent sample is still limited."
+
+    return {
+        "shared_opponents": shared_opponents,
+        "team_a_record": {"wins": team_a_tot_wins, "losses": team_a_tot_losses, "games": team_a_games},
+        "team_b_record": {"wins": team_b_tot_wins, "losses": team_b_tot_losses, "games": team_b_games},
+        "normalized_edge_score": normalized_edge_score,
+        "confidence_note": confidence_note,
+        "detail_rows": detail_rows,
+    }
+
 def compute_sectional_team_breakdown(team, sectional, stats, h2h, games, sos, matchup_agg, global_prior_scores=None, params=None):
     p = {**SECTIONAL_SCORE_PARAMS, **(params or {})}
     valid_teams = [t for t in sectional if t in stats]
@@ -2579,36 +2656,23 @@ def main():
                  f"legacy Win% #{win_ord.index(opp)+1 if opp in win_ord else '-'}, "
                  f"Pyth #{py_ord.index(opp)+1 if opp in py_ord else '-'}, AdjPyth #{adj_ord.index(opp)+1 if opp in adj_ord else '-'}, Elo #{elo_ord.index(opp)+1 if opp in elo_ord else '-'}")
         st.markdown("**Common Opponents**")
-        com = set(stats[te]['opponents']) & set(stats[opp]['opponents'])
-        if com:
-            dfc = []
-            for c in com:
-                try:
-                    rec_te = matchup_agg.get((te, c), {"wins": 0, "losses": 0})
-                    rec_opp = matchup_agg.get((opp, c), {"wins": 0, "losses": 0})
-                    wins_te = rec_te["wins"]
-                    losses_te = rec_te["losses"]
-                    wins_opp = rec_opp["wins"]
-                    losses_opp = rec_opp["losses"]
-                    
-                    dfc.append({
-                        'Opp': c,
-                        f'{te} W': wins_te,
-                        f'{te} L': losses_te,
-                        f'{opp} W': wins_opp,
-                        f'{opp} L': losses_opp
-                    })
-                except Exception as e:
-                    st.error(f"Error processing opponent {c}: {str(e)}")
-            
-            if dfc:
-                try:
-                    df_common = pd.DataFrame(dfc)
-                    st.dataframe(df_common)
-                except Exception as e:
-                    st.error(f"Error creating DataFrame: {str(e)}")
-            else:
-                st.write("No common opponent data available")
+        shared_summary = summarize_common_opponents(te, opp, matchup_agg)
+        if shared_summary["detail_rows"]:
+            rows = []
+            for row in shared_summary["detail_rows"]:
+                te_wins, te_losses = row[f"{te} record"].split("-")
+                opp_wins, opp_losses = row[f"{opp} record"].split("-")
+                rows.append(
+                    {"Opp": row["Opponent"], f"{te} W": int(te_wins), f"{te} L": int(te_losses), f"{opp} W": int(opp_wins), f"{opp} L": int(opp_losses)}
+                )
+            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.caption(
+                f"Shared-opponent edge ({te}): {shared_summary['normalized_edge_score']:.3f} "
+                f"({te} {shared_summary['team_a_record']['wins']}-{shared_summary['team_a_record']['losses']} vs "
+                f"{opp} {shared_summary['team_b_record']['wins']}-{shared_summary['team_b_record']['losses']})."
+            )
+            if shared_summary["confidence_note"]:
+                st.caption(shared_summary["confidence_note"])
         else:
             st.write("No common opponents.")
         st.markdown("**Full Schedule**")
@@ -2744,22 +2808,16 @@ def main():
             st.write("No direct head-to-head games logged yet.")
 
         st.markdown("**Common opponents**")
-        common_rows = []
-        te_opponents = {k for k in matchup_agg.get(te, {}) if k != opp}
-        opp_opponents = {k for k in matchup_agg.get(opp, {}) if k != te}
-        shared_opponents = sorted(te_opponents.intersection(opp_opponents))
-        for common_opp in shared_opponents:
-            te_split = matchup_agg.get(te, {}).get(common_opp, {"wins": 0, "games": 0})
-            opp_split = matchup_agg.get(opp, {}).get(common_opp, {"wins": 0, "games": 0})
-            common_rows.append(
-                {
-                    "Opponent": common_opp,
-                    f"{te} record": f"{te_split['wins']}-{te_split['games'] - te_split['wins']}",
-                    f"{opp} record": f"{opp_split['wins']}-{opp_split['games'] - opp_split['wins']}",
-                }
+        shared_summary = summarize_common_opponents(te, opp, matchup_agg)
+        if shared_summary["detail_rows"]:
+            st.dataframe(pd.DataFrame(shared_summary["detail_rows"]), use_container_width=True, hide_index=True)
+            st.caption(
+                f"Shared-opponent edge ({te}): {shared_summary['normalized_edge_score']:.3f} "
+                f"({te} {shared_summary['team_a_record']['wins']}-{shared_summary['team_a_record']['losses']} vs "
+                f"{opp} {shared_summary['team_b_record']['wins']}-{shared_summary['team_b_record']['losses']})."
             )
-        if common_rows:
-            st.dataframe(pd.DataFrame(common_rows), use_container_width=True, hide_index=True)
+            if shared_summary["confidence_note"]:
+                st.caption(shared_summary["confidence_note"])
         else:
             st.caption("No common-opponent overlap available yet.")
 
