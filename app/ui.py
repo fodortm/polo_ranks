@@ -24,10 +24,56 @@ SEMANTIC_COLORS = {
     "negative": "#B50909",
     "neutral": "#6B7280",
 }
-TYPOGRAPHY_SCALE = {"title": "##", "subtitle": "####"}
-SPACING_SCALE = {"section": "<div style='margin-top: 1.25rem;'></div>", "panel": "<div style='margin-top: 0.75rem;'></div>"}
+
+DESIGN_TOKENS = {
+    "typography": {
+        "title": "##",
+        "subtitle": "####",
+        "section_label": "#####",
+        "caption": "caption",
+    },
+    "spacing": {
+        "section": "<div style='margin-top: 1.25rem;'></div>",
+        "panel": "<div style='margin-top: 0.75rem;'></div>",
+        "control_gap": "<div style='margin-top: 0.5rem;'></div>",
+    },
+    "color": {
+        "surface_bg": "#FFFFFF",
+        "surface_subtle": "#F9FAFB",
+        "text_primary": "#111827",
+        "text_secondary": "#4B5563",
+        "border": "#D1D5DB",
+        "focus": "#1D4ED8",
+        "positive": SEMANTIC_COLORS["positive"],
+        "negative": SEMANTIC_COLORS["negative"],
+        "neutral": SEMANTIC_COLORS["neutral"],
+    },
+    "component_primitives": {
+        "card_radius": 8,
+        "chart_point_size": 90,
+        "table_row_density": "comfortable",
+    },
+}
+
+TYPOGRAPHY_SCALE = DESIGN_TOKENS["typography"]
+SPACING_SCALE = DESIGN_TOKENS["spacing"]
 RANK_TIER_COLORS = {"elite": "#1D4ED8", "contender": "#93C5FD", "support": "#9CA3AF"}
 CHART_FORMATS = {"pct3": ".3f", "float3": ".3f", "float2": ".2f", "float1": ".1f", "int0": ".0f"}
+
+INTERACTION_STANDARDS = {
+    "advanced_controls": {
+        "default_expanded": False,
+        "collapsed_label_suffix": "(optional)",
+        "expanded_helper": "Changes affect rankings, team profile context, and chart analysis views.",
+    },
+    "consistency_priority_surfaces": ["Rankings", "Team Profiles/Resume", "Sectionals"],
+}
+
+VISUAL_QA_CHECKLIST = [
+    "Hierarchy: page title, section header, and caption contrast clearly communicate scan order.",
+    "Contrast: text and key chart marks remain legible against light surfaces.",
+    "Touch ergonomics: interactive controls and tabs are comfortably tappable on mobile widths.",
+]
 
 DEFAULT_PRIMARY_METRIC = "BCAR"
 DEFAULT_DASHBOARD_METRIC_LENS = "BCAR"
@@ -233,6 +279,21 @@ def render_typography(level, text):
 
 def render_spacing(level="panel"):
     st.markdown(SPACING_SCALE.get(level, SPACING_SCALE["panel"]), unsafe_allow_html=True)
+
+
+def render_advanced_controls_expander(label, *, sidebar=False):
+    base_label = f"{label} {INTERACTION_STANDARDS['advanced_controls']['collapsed_label_suffix']}".strip()
+    expander_container = st.sidebar if sidebar else st
+    with expander_container.expander(base_label, expanded=INTERACTION_STANDARDS["advanced_controls"]["default_expanded"]):
+        st.caption(INTERACTION_STANDARDS["advanced_controls"]["expanded_helper"])
+        return True
+
+
+def render_visual_qa_checklist():
+    st.markdown("##### Visual QA checklist")
+    for item in VISUAL_QA_CHECKLIST:
+        st.caption(f"• {item}")
+
 
 def render_primary_rank_caption_block():
     st.caption("Ensemble (Primary) resolves ties in this order: calibrated score → direct H2H tiebreak → SOS margin tiebreak → stable secondary key.")
@@ -2259,7 +2320,7 @@ def main():
     global_prior_max_weight = float(sectional_cfg["global_prior_max_weight"])
     global_prior_shrink_k = float(sectional_cfg["global_prior_shrink_k"])
 
-    with st.sidebar.expander("Advanced Settings", expanded=False):
+    if render_advanced_controls_expander("Advanced Settings", sidebar=True):
             st.caption(f"Role gate: {'Admin' if is_admin else 'Read-only'}")
             if not is_admin:
                 st.markdown(
@@ -2380,7 +2441,7 @@ def main():
         "sectional": active_sectional_params,
     }
 
-    with st.sidebar.expander("Model Settings", expanded=False):
+    if render_advanced_controls_expander("Model Settings", sidebar=True):
         st.caption("Active model configuration for reproducibility")
         st.caption("Win% is intentionally low-trust in composite scoring and receives an additional reliability cap in the ensemble.")
         st.json(active_config)
@@ -2391,7 +2452,7 @@ def main():
         help="Defaults to the legacy hybrid flow. Select schedule-adjusted to enable the newer fit/prediction UI.",
         key="hybrid_ui_model",
     )
-    with st.sidebar.expander("Expert Orders", expanded=False):
+    if render_advanced_controls_expander("Expert Orders", sidebar=True):
         st.caption("Paste Top 25 lists (one team per line; numbering optional) to compare model fit.")
         illpolo_text = st.text_area("Illpolo order", height=180, key="illpolo_order_text")
         maxpreps_text = st.text_area("MaxPreps order", height=180, key="maxpreps_order_text")
@@ -2644,6 +2705,7 @@ def main():
             sos=sos,
         )
         st.subheader("Public Rankings")
+        render_visual_qa_checklist()
         st.caption("BCAR — Primary public ranking metric.")
         rank_table = dashboard_vm["current_rank_table"].copy()
         if "team" in rank_table.columns:
