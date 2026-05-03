@@ -1,6 +1,12 @@
 import pandas as pd
+import streamlit as st
 
-from app.ui import _to_schedule_adjusted_games, compute_schedule_adjusted_hybrid
+from app.ui import (
+    _on_dashboard_time_window_change,
+    _on_dashboard_whole_season_toggle,
+    _to_schedule_adjusted_games,
+    compute_schedule_adjusted_hybrid,
+)
 
 
 def test_to_schedule_adjusted_games_converts_schema():
@@ -31,3 +37,22 @@ def test_compute_schedule_adjusted_hybrid_smoke():
     assert out["order"]
     assert not out["table"].empty
     assert out["model"] is not None
+
+
+def test_dashboard_timeframe_controls_smoke():
+    st.session_state.clear()
+    st.query_params.clear()
+
+    st.session_state["dashboard_time_window"] = "Last 4 weeks"
+    _on_dashboard_time_window_change()
+    assert st.query_params["whole_season"] == "0"
+
+    st.session_state["dashboard_whole_season_toggle"] = True
+    _on_dashboard_whole_season_toggle()
+    assert st.session_state["dashboard_time_window"] == "All"
+    assert st.query_params["whole_season"] == "1"
+
+    st.session_state["dashboard_whole_season_toggle"] = False
+    _on_dashboard_whole_season_toggle()
+    assert st.session_state["dashboard_time_window"] == "Last 4 weeks"
+    assert st.query_params["whole_season"] == "0"

@@ -90,12 +90,12 @@ def _normalize_whole_season_flag(raw_value):
 
 def _init_dashboard_timeframe_state():
     whole_season_from_url = _normalize_whole_season_flag(st.query_params.get("whole_season"))
+    if "dashboard_time_window" not in st.session_state:
+        st.session_state["dashboard_time_window"] = "All" if whole_season_from_url else "Last 4 weeks"
+    elif st.session_state["dashboard_time_window"] not in {"Last 4 weeks", "All"}:
+        st.session_state["dashboard_time_window"] = "Last 4 weeks"
     if "dashboard_whole_season" not in st.session_state:
-        st.session_state["dashboard_whole_season"] = whole_season_from_url
-    elif whole_season_from_url != st.session_state["dashboard_whole_season"]:
-        st.session_state["dashboard_whole_season"] = whole_season_from_url
-
-    st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
+        st.session_state["dashboard_whole_season"] = st.session_state["dashboard_time_window"] == "All"
 
 
 def _init_dashboard_metric_state():
@@ -109,8 +109,21 @@ def _init_dashboard_metric_state():
 
 
 def _sync_dashboard_timeframe_query_params():
-    st.query_params["whole_season"] = "1" if st.session_state.get("dashboard_whole_season", False) else "0"
+    dashboard_whole_season = st.session_state.get("dashboard_time_window") == "All"
+    st.query_params["whole_season"] = "1" if dashboard_whole_season else "0"
     st.query_params["metric"] = st.session_state.get("dashboard_metric_lens", DEFAULT_DASHBOARD_METRIC_LENS)
+
+
+def _on_dashboard_whole_season_toggle():
+    dashboard_whole_season = st.session_state.get("dashboard_whole_season_toggle", False)
+    st.session_state["dashboard_time_window"] = "All" if dashboard_whole_season else "Last 4 weeks"
+    _track_on_change("filter_usage", "dashboard_time_window")
+    _sync_dashboard_timeframe_query_params()
+
+
+def _on_dashboard_time_window_change():
+    _track_on_change("filter_usage", "dashboard_time_window")
+    _sync_dashboard_timeframe_query_params()
 
 
 def track_ui_event(event_name, **payload):
@@ -622,19 +635,16 @@ def render_dashboard_header_kpis(kpi, metric_lens, metric_format):
 
 def render_dashboard_controls():
     ctl_a, ctl_b, ctl_c = st.columns(3)
+    dashboard_whole_season = st.session_state.get("dashboard_time_window") == "All"
     ctl_a.selectbox("Sectional", options=["All Sectionals"], key="dashboard_sectional_selector", on_change=_track_on_change, args=("filter_usage", "dashboard_sectional_selector"))
     ctl_b.selectbox("Division", options=["All Divisions"], key="dashboard_division_selector", on_change=_track_on_change, args=("filter_usage", "dashboard_division_selector"))
-    ctl_c.checkbox("Whole season", key="dashboard_whole_season", on_change=_track_on_change, args=("filter_usage", "dashboard_whole_season"))
+    ctl_c.checkbox("Whole season", value=dashboard_whole_season, key="dashboard_whole_season_toggle", on_change=_on_dashboard_whole_season_toggle)
     st.selectbox(
         "Timeframe",
         options=["Last 4 weeks", "All"],
         key="dashboard_time_window",
-        on_change=_track_on_change,
-        args=("filter_usage", "dashboard_time_window"),
+        on_change=_on_dashboard_time_window_change,
     )
-    st.session_state["dashboard_whole_season"] = st.session_state["dashboard_time_window"] == "All"
-    st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
-    _sync_dashboard_timeframe_query_params()
     st.selectbox(
         "Metric lens",
         options=METRIC_LENS_OPTIONS,
@@ -646,8 +656,8 @@ def render_dashboard_controls():
     )
     if st.button("Reset to BCAR defaults", key="dashboard_reset_defaults"):
         st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
-        st.session_state["dashboard_whole_season"] = False
         st.session_state["dashboard_time_window"] = "Last 4 weeks"
+        st.session_state["dashboard_whole_season_toggle"] = False
         track_ui_event("filter_usage", key="dashboard_reset_defaults", value="clicked")
         _sync_dashboard_timeframe_query_params()
     with st.expander("See all metrics", expanded=False):
@@ -2509,9 +2519,8 @@ def main():
         # Safe fallback for persisted/linked state values outside the current control options.
         if not isinstance(st.session_state["dashboard_top10_only"], bool):
             st.session_state["dashboard_top10_only"] = False
-        if not isinstance(st.session_state.get("dashboard_whole_season"), bool):
-            st.session_state["dashboard_whole_season"] = False
-        st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
+        if st.session_state["dashboard_time_window"] not in {"Last 4 weeks", "All"}:
+            st.session_state["dashboard_time_window"] = "Last 4 weeks"
         if st.session_state["dashboard_metric_lens"] not in METRIC_LENS_OPTIONS:
             st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
 
@@ -2635,7 +2644,7 @@ def main():
         canonical_path = build_team_canonical_path(
             team_slug_lookup.get(te, slugify_team_name(te)),
             section="profile",
-            timeframe="all" if st.session_state.get("dashboard_whole_season") else "last-4-weeks",
+            timeframe="all" if st.session_state.get("dashboard_time_window") == "All" else "last-4-weeks",
         )
         share_meta = build_profile_share_metadata(
             te,
