@@ -2467,18 +2467,34 @@ def main():
         st.session_state["selected_team_route_target"] = None
     team_slug_lookup = build_team_slug_lookup(teams)
     team_slug_reverse = {slug: team for team, slug in team_slug_lookup.items()}
-    team_from_url = str(st.query_params.get("team", "")).strip()
 
+    # Lifecycle safety order (must remain deterministic):
+    # 1) parse query params -> 2) resolve route target -> 3) initialize state defaults -> 4) render widgets.
+    team_from_url = str(st.query_params.get("team", "")).strip()
     valid_team_from_url = None
     if team_from_url in teams:
         valid_team_from_url = team_from_url
     elif team_from_url in team_slug_reverse:
         valid_team_from_url = team_slug_reverse[team_from_url]
-    if valid_team_from_url:
-        st.session_state["selected_team_route_target"] = valid_team_from_url
+
+    default_route_team = selector_order[default_team_index]
+    legacy_target = resolve_legacy_public_target(st.query_params, fallback_team=default_route_team)
+    if legacy_target and legacy_target.get("team_slug") and legacy_target["team_slug"] in team_slug_reverse:
+        legacy_target["team"] = team_slug_reverse[legacy_target["team_slug"]]
+
+    resolved_route_target = valid_team_from_url
+    if not resolved_route_target and legacy_target and legacy_target.get("team"):
+        legacy_team = legacy_target["team"]
+        if legacy_team in selector_order:
+            resolved_route_target = legacy_team
+        else:
+            st.warning(f"Ignored invalid legacy team target: {legacy_team}. Falling back to default team.")
+
+    if resolved_route_target:
+        st.session_state["selected_team_route_target"] = resolved_route_target
 
     route_target_team = st.session_state.get("selected_team_route_target")
-    widget_default_team = selector_order[default_team_index]
+    widget_default_team = default_route_team
     if route_target_team in selector_order:
         widget_default_team = route_target_team
     elif st.session_state.get("selected_team_widget") in selector_order:
@@ -2512,14 +2528,10 @@ def main():
     ranks['elo']  = elo_ord.index(te)+1 if te in elo_ord else None
     ranks_list   = [v for v in ranks.values() if v]
     r_avg = round(sum(ranks_list)/len(ranks_list),2) if ranks_list else None
-    legacy_target = resolve_legacy_public_target(st.query_params, fallback_team=te)
     if legacy_target:
         st.session_state["primary_nav"] = legacy_target["target_nav"]
-        if legacy_target.get("team_slug") and legacy_target["team_slug"] in team_slug_reverse:
-            legacy_target["team"] = team_slug_reverse[legacy_target["team_slug"]]
-        if legacy_target.get("team"):
-            st.session_state["selected_team_route_target"] = legacy_target["team"]
-            st.query_params["team"] = legacy_target["team"]
+        if st.session_state.get("selected_team_route_target") in selector_order:
+            st.query_params["team"] = st.session_state["selected_team_route_target"]
         st.query_params["primary_nav"] = legacy_target["target_nav"]
         st.query_params["redirected_from"] = "legacy_public_tab"
         st.rerun()
