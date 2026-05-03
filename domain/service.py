@@ -28,6 +28,22 @@ def _result_streak(games: list[dict[str, Any]]) -> str:
     return f"{last}{cnt}"
 
 
+def _location_tag(game_row: Any, is_home_slot: bool) -> str:
+    if hasattr(game_row, "site"):
+        site_val = str(getattr(game_row, "site") or "").strip().lower()
+        if site_val in {"neutral", "n"}:
+            return "neutral"
+    return "home" if is_home_slot else "away"
+
+
+def _match_context_tag(game_row: Any) -> str:
+    if hasattr(game_row, "date") and getattr(game_row, "date") is not None:
+        return str(getattr(game_row, "date"))
+    if hasattr(game_row, "week") and getattr(game_row, "week") is not None:
+        return f"W{getattr(game_row, 'week')}"
+    return "date-unknown"
+
+
 def build_team_resume(team, games_df, bcar_scores, stats, h2h, sos):
     team_games: list[dict[str, Any]] = []
     for row in games_df.itertuples(index=False):
@@ -46,8 +62,13 @@ def build_team_resume(team, games_df, bcar_scores, stats, h2h, sos):
                 "opp_score": opp_score,
                 "margin": margin,
                 "quality": quality,
-                "impact": quality + max(0, team_score - opp_score) * 0.05,
-                "negative_impact": quality + max(0, opp_score - team_score) * 0.1,
+                "location": _location_tag(row, is_home_slot),
+                "match_date": _match_context_tag(row),
+                "opp_rank_at_match": (
+                    int(getattr(row, "opp_rank"))
+                    if hasattr(row, "opp_rank") and getattr(row, "opp_rank") is not None and str(getattr(row, "opp_rank")).lower() != "nan"
+                    else None
+                ),
             }
         )
 
@@ -56,20 +77,15 @@ def build_team_resume(team, games_df, bcar_scores, stats, h2h, sos):
 
     top_wins = sorted(
         wins,
-        key=lambda g: (-g["quality"], -g["margin"], g["opponent"], g["team_score"], g["opp_score"]),
-    )[: max(3, min(len(wins), 5))]
+        key=lambda g: (-g["quality"], -g["margin"], g["opp_score"], g["opponent"], g["match_date"]),
+    )[:5]
     worst_losses = sorted(
         losses,
-        key=lambda g: (g["quality"], g["margin"], g["opponent"], g["team_score"], g["opp_score"]),
-    )[: max(3, min(len(losses), 5))]
-    best_losses = sorted(
-        losses,
-        key=lambda g: (-g["quality"], -g["margin"], g["opponent"], g["team_score"], g["opp_score"]),
-    )[: max(3, min(len(losses), 5))]
-    worst_wins = sorted(
-        wins,
-        key=lambda g: (g["quality"], g["margin"], g["opponent"], g["team_score"], g["opp_score"]),
-    )[: max(3, min(len(wins), 5))]
+        key=lambda g: (g["quality"], g["margin"], -g["team_score"], g["opponent"], g["match_date"]),
+    )[:5]
+
+    recent_form = sorted(team_games, key=lambda g: g["match_date"], reverse=True)[:5]
+    sos_context = sorted(team_games, key=lambda g: (-g["quality"], g["opponent"], g["match_date"]))[:5]
 
     tstats = stats.get(team, {})
     opponents = sorted({g["opponent"] for g in team_games if g["opponent"] in bcar_scores}, key=lambda t: (-bcar_scores[t], t))
@@ -90,11 +106,18 @@ def build_team_resume(team, games_df, bcar_scores, stats, h2h, sos):
 
     return {
         "team": team,
+        "sections": ["Top wins", "Worst losses", "Recent form", "Strength of schedule"],
         "top_wins": top_wins,
         "worst_losses": worst_losses,
-        "best_losses": best_losses,
-        "worst_wins": worst_wins,
+        "recent_form": recent_form,
+        "strength_of_schedule": sos_context,
         "summary": summary,
+        "empty_states": {
+            "top_wins": "No wins available yet." if not top_wins else "",
+            "worst_losses": "No losses available yet." if not worst_losses else "",
+            "recent_form": "No matches logged yet." if not recent_form else "",
+            "strength_of_schedule": "No opponent-quality data yet." if not sos_context else "",
+        },
     }
 
 
@@ -103,45 +126,34 @@ def _clamp_0_100(value: float) -> float:
 
 
 def build_team_explainer_card(team: str, stats: dict[str, dict[str, Any]], sos: dict[str, float], h2h: dict[tuple[str, str], dict[str, int]], team_imputation: dict[str, dict[str, int]], as_of: datetime | None = None) -> dict[str, Any]:
-    """Build public-safe explanation factors for ranking context.
-
-    Factors intentionally avoid exposing internal weight/tuning parameters.
-    """
     team_stats = stats.get(team, {})
     games = int(team_stats.get("games", 0))
     wins = int(team_stats.get("wins", 0))
     losses = int(team_stats.get("losses", 0))
     ties = int(team_stats.get("ties", 0))
-
     opponents = [opp for opp in stats if opp != team]
     opp_games = [h2h.get((team, opp), {"games": 0}).get("games", 0) for opp in opponents]
     unique_played = sum(1 for g in opp_games if g > 0)
     max_unique = max(len(opponents), 1)
-
     imp_games = int(team_imputation.get(team, {}).get("imputed", 0))
     total_imp_games = int(team_imputation.get(team, {}).get("games", games))
     imputation_rate = (imp_games / total_imp_games) if total_imp_games else 0.0
-
     results_quality = _clamp_0_100(100.0 * float(team_stats.get("win_pct", 0.0)))
     schedule_strength = _clamp_0_100(100.0 * float(sos.get(team, 0.0)))
     consistency = _clamp_0_100(100.0 * (1.0 - min(1.0, abs(float(team_stats.get("gf", 0)) - float(team_stats.get("ga", 0))) / max(games * 6.0, 1.0))))
-
     recent_window = min(5, games)
     recent_form_score = _clamp_0_100(50.0 + (wins - losses) * (50.0 / max(recent_window, 1))) if games else 50.0
     data_coverage = _clamp_0_100(100.0 * ((0.6 * (unique_played / max_unique)) + (0.4 * (1.0 - imputation_rate))))
-
     confidence = "High"
     if games < 4 or unique_played < 3 or imputation_rate > 0.35:
         confidence = "Low"
     elif games < 7 or unique_played < 5 or imputation_rate > 0.20:
         confidence = "Medium"
-
     freshness = "Fresh"
     if games <= 2:
         freshness = "Early sample"
     elif games <= 5:
         freshness = "Building sample"
-
     def statement(name: str, value: float) -> str:
         if name == "Results quality":
             return "Strong results against played opponents." if value >= 65 else "Mixed results; rank may swing with next games."
@@ -152,7 +164,6 @@ def build_team_explainer_card(team: str, stats: dict[str, dict[str, Any]], sos: 
         if name == "Recent form":
             return "Recent form is trending up." if value >= 60 else "Recent form is neutral or down."
         return "Coverage is broad enough to trust comparisons." if value >= 60 else "Coverage is thin; treat rank as provisional."
-
     factors = [
         {"name": "Results quality", "value": round(results_quality, 1)},
         {"name": "Schedule strength", "value": round(schedule_strength, 1)},
@@ -162,13 +173,5 @@ def build_team_explainer_card(team: str, stats: dict[str, dict[str, Any]], sos: 
     ]
     for factor in factors:
         factor["summary"] = statement(factor["name"], factor["value"])
-
     as_of_ts = as_of or datetime.now(timezone.utc)
-    return {
-        "team": team,
-        "factors": factors,
-        "confidence_label": confidence,
-        "recency_label": freshness,
-        "as_of_utc": as_of_ts.isoformat(),
-        "record": f"{wins}-{losses}-{ties}",
-    }
+    return {"team": team, "factors": factors, "confidence_label": confidence, "recency_label": freshness, "as_of_utc": as_of_ts.isoformat(), "record": f"{wins}-{losses}-{ties}"}
