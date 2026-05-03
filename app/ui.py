@@ -35,6 +35,22 @@ DEFAULT_WEEKLY_TREND_METRIC = "BCAR"
 DEFAULT_SORT_MODE = "BCAR"
 DEFAULT_HYBRID_UI_MODEL = "Legacy Hybrid"
 LEGACY_METRIC_DEFAULTS = {"Ensemble", "Ensemble (Primary)", "Win%", "Win %"}
+DEV_MODE = os.environ.get("POLO_UI_DEV_MODE", "").strip().lower() in {"1", "true", "yes", "y"}
+
+# Session-state ownership convention:
+# - Widget-owned keys are only written by Streamlit callbacks/widget lifecycle.
+# - Non-widget keys may be initialized/mutated by app logic via safe_set_non_widget_state.
+# This reduces accidental mutation of widget state outside callbacks.
+WIDGET_OWNED_KEYS = {
+    "dashboard_sectional_selector",
+    "dashboard_division_selector",
+    "selected_team_widget",
+    "selected_compare_team",
+    "team_selector_sort_mode",
+    "content_section",
+    "rank_table_sort_mode",
+    "primary_nav",
+}
 
 
 SECONDARY_METRIC_ORDER = ["Elo", "Adj Pyth", "Win %", "Ensemble Score"]
@@ -79,6 +95,50 @@ DEFAULT_ENSEMBLE_WEIGHTS = {
 
 
 
+def safe_set_non_widget_state(key, value):
+    if key in WIDGET_OWNED_KEYS:
+        message = f"Unsafe widget-owned state mutation attempt for key='{key}'. Use widget callbacks."
+        if DEV_MODE:
+            st.warning(message)
+            assert key not in WIDGET_OWNED_KEYS, message
+        return False
+    st.session_state[key] = value
+    return True
+
+
+def init_state_defaults(nav_options):
+    if "selected_team_route_target" not in st.session_state:
+        safe_set_non_widget_state("selected_team_route_target", None)
+    if "dashboard_top10_only" not in st.session_state:
+        safe_set_non_widget_state("dashboard_top10_only", False)
+    if st.session_state.get("primary_nav") not in nav_options:
+        st.session_state["primary_nav"] = "Rankings"
+
+
+def apply_route_targets(selector_order, default_route_team, legacy_target, valid_team_from_url):
+    resolved_route_target = valid_team_from_url
+    if not resolved_route_target and legacy_target and legacy_target.get("team"):
+        legacy_team = legacy_target["team"]
+        if legacy_team in selector_order:
+            resolved_route_target = legacy_team
+        else:
+            st.warning(f"Ignored invalid legacy team target: {legacy_team}. Falling back to default team.")
+
+    if resolved_route_target:
+        safe_set_non_widget_state("selected_team_route_target", resolved_route_target)
+
+    route_target_team = st.session_state.get("selected_team_route_target")
+    widget_default_team = default_route_team
+    if route_target_team in selector_order:
+        widget_default_team = route_target_team
+    elif st.session_state.get("selected_team_widget") in selector_order:
+        widget_default_team = st.session_state["selected_team_widget"]
+    st.session_state["selected_team_widget"] = widget_default_team
+    if route_target_team in selector_order:
+        safe_set_non_widget_state("selected_team_route_target", None)
+    return widget_default_team
+
+
 def _normalize_whole_season_flag(raw_value):
     if isinstance(raw_value, bool):
         return raw_value
@@ -116,7 +176,7 @@ def _sync_dashboard_timeframe_query_params():
 
 def _on_dashboard_whole_season_toggle():
     dashboard_whole_season = st.session_state.get("dashboard_whole_season_toggle", False)
-    st.session_state["dashboard_time_window"] = "All" if dashboard_whole_season else "Last 4 weeks"
+    safe_set_non_widget_state("dashboard_time_window", "All" if dashboard_whole_season else "Last 4 weeks")
     _track_on_change("filter_usage", "dashboard_time_window")
     _sync_dashboard_timeframe_query_params()
 
@@ -655,9 +715,9 @@ def render_dashboard_controls():
         args=("metric_switch", "dashboard_metric_lens"),
     )
     if st.button("Reset to BCAR defaults", key="dashboard_reset_defaults"):
-        st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
-        st.session_state["dashboard_time_window"] = "Last 4 weeks"
-        st.session_state["dashboard_whole_season_toggle"] = False
+        safe_set_non_widget_state("dashboard_metric_lens", DEFAULT_DASHBOARD_METRIC_LENS)
+        safe_set_non_widget_state("dashboard_time_window", "Last 4 weeks")
+        safe_set_non_widget_state("dashboard_whole_season_toggle", False)
         track_ui_event("filter_usage", key="dashboard_reset_defaults", value="clicked")
         _sync_dashboard_timeframe_query_params()
     with st.expander("See all metrics", expanded=False):
@@ -2067,8 +2127,7 @@ def main():
         "Sectionals": "Sectionals",
         "Admin / Internal": "Admin",
     }
-    if "primary_nav" not in st.session_state or st.session_state["primary_nav"] not in nav_options:
-        st.session_state["primary_nav"] = "Rankings"
+    init_state_defaults(nav_options)
 
     nav_cols = st.columns(len(nav_options), gap="small")
     for col, nav_key in zip(nav_cols, nav_options):
@@ -2443,13 +2502,13 @@ def main():
 
     sort_modes = ["Ensemble rank", "Elo", "BCAR", "AdjPyth", "Pyth", "Win%", "SOS"]
     if st.session_state.get("dashboard_metric_lens") in LEGACY_METRIC_DEFAULTS:
-        st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
+        safe_set_non_widget_state("dashboard_metric_lens", DEFAULT_DASHBOARD_METRIC_LENS)
     if st.session_state.get("dashboard_weekly_metric") in LEGACY_METRIC_DEFAULTS:
-        st.session_state["dashboard_weekly_metric"] = DEFAULT_WEEKLY_TREND_METRIC
+        safe_set_non_widget_state("dashboard_weekly_metric", DEFAULT_WEEKLY_TREND_METRIC)
     if st.session_state.get("rank_table_sort_mode") in LEGACY_METRIC_DEFAULTS or st.session_state.get("rank_table_sort_mode") == "Ensemble rank":
-        st.session_state["rank_table_sort_mode"] = DEFAULT_SORT_MODE
+        safe_set_non_widget_state("rank_table_sort_mode", DEFAULT_SORT_MODE)
     if st.session_state.get("team_selector_sort_mode") in LEGACY_METRIC_DEFAULTS or st.session_state.get("team_selector_sort_mode") == "Ensemble rank":
-        st.session_state["team_selector_sort_mode"] = DEFAULT_SORT_MODE
+        safe_set_non_widget_state("team_selector_sort_mode", DEFAULT_SORT_MODE)
     bcar_scores = dict(zip(bcar_table["Team"], bcar_table["BCAR Score"])) if not bcar_table.empty else {}
 
     # Team profile selection
@@ -2457,14 +2516,12 @@ def main():
     default_compare_team = "New Trier"
     st.sidebar.header("Team Profile")
     if st.session_state.get("team_selector_sort_mode") in LEGACY_METRIC_DEFAULTS or st.session_state.get("team_selector_sort_mode") == "Ensemble rank":
-        st.session_state["team_selector_sort_mode"] = DEFAULT_SORT_MODE
+        safe_set_non_widget_state("team_selector_sort_mode", DEFAULT_SORT_MODE)
     selector_sort_mode = st.sidebar.selectbox("Team selector order", sort_modes, key="team_selector_sort_mode")
     selector_order = sort_teams_by_mode(
         selector_sort_mode, teams, stats, sos, primary_payload["table"], elo=elo, bcar_table=bcar_table, adj_vals=adj_vals, pyth_vals=py
     )
     default_team_index = selector_order.index(default_team) if default_team in selector_order else 0
-    if "selected_team_route_target" not in st.session_state:
-        st.session_state["selected_team_route_target"] = None
     team_slug_lookup = build_team_slug_lookup(teams)
     team_slug_reverse = {slug: team for team, slug in team_slug_lookup.items()}
 
@@ -2482,30 +2539,16 @@ def main():
     if legacy_target and legacy_target.get("team_slug") and legacy_target["team_slug"] in team_slug_reverse:
         legacy_target["team"] = team_slug_reverse[legacy_target["team_slug"]]
 
-    resolved_route_target = valid_team_from_url
-    if not resolved_route_target and legacy_target and legacy_target.get("team"):
-        legacy_team = legacy_target["team"]
-        if legacy_team in selector_order:
-            resolved_route_target = legacy_team
-        else:
-            st.warning(f"Ignored invalid legacy team target: {legacy_team}. Falling back to default team.")
-
-    if resolved_route_target:
-        st.session_state["selected_team_route_target"] = resolved_route_target
-
-    route_target_team = st.session_state.get("selected_team_route_target")
-    widget_default_team = default_route_team
-    if route_target_team in selector_order:
-        widget_default_team = route_target_team
-    elif st.session_state.get("selected_team_widget") in selector_order:
-        widget_default_team = st.session_state["selected_team_widget"]
-    st.session_state["selected_team_widget"] = widget_default_team
+    widget_default_team = apply_route_targets(
+        selector_order=selector_order,
+        default_route_team=default_route_team,
+        legacy_target=legacy_target,
+        valid_team_from_url=valid_team_from_url,
+    )
 
     st.sidebar.selectbox("Select Team", selector_order, key="selected_team_widget")
     te = st.session_state.get("selected_team_widget", widget_default_team)
-    st.session_state["selected_team"] = te
-    if route_target_team in selector_order:
-        st.session_state["selected_team_route_target"] = None
+    safe_set_non_widget_state("selected_team", te)
     compare_teams = [t for t in selector_order if t != te]
     if compare_teams:
         default_compare_index = compare_teams.index(default_compare_team) if default_compare_team in compare_teams else 0
@@ -2539,7 +2582,7 @@ def main():
     # Tabs & content
     if current_nav == "Rankings":
         if "dashboard_top10_only" not in st.session_state:
-            st.session_state["dashboard_top10_only"] = False
+            safe_set_non_widget_state("dashboard_top10_only", False)
         _init_dashboard_timeframe_state()
         _init_dashboard_metric_state()
         # Backward-compatible cleanup: ignore legacy persona state from prior sessions/links.
@@ -2547,11 +2590,11 @@ def main():
 
         # Safe fallback for persisted/linked state values outside the current control options.
         if not isinstance(st.session_state["dashboard_top10_only"], bool):
-            st.session_state["dashboard_top10_only"] = False
+            safe_set_non_widget_state("dashboard_top10_only", False)
         if st.session_state["dashboard_time_window"] not in {"Last 4 weeks", "All"}:
-            st.session_state["dashboard_time_window"] = "Last 4 weeks"
+            safe_set_non_widget_state("dashboard_time_window", "Last 4 weeks")
         if st.session_state["dashboard_metric_lens"] not in METRIC_LENS_OPTIONS:
-            st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
+            safe_set_non_widget_state("dashboard_metric_lens", DEFAULT_DASHBOARD_METRIC_LENS)
 
         trend_top_n, movement_top_n = render_dashboard_controls()
         st.query_params["section"] = "rankings"
