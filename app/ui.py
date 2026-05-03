@@ -36,6 +36,15 @@ DEFAULT_SORT_MODE = "BCAR"
 DEFAULT_HYBRID_UI_MODEL = "Legacy Hybrid"
 LEGACY_METRIC_DEFAULTS = {"Ensemble", "Ensemble (Primary)", "Win%", "Win %"}
 
+
+SECONDARY_METRIC_ORDER = ["Elo", "Adj Pyth", "Win %", "Ensemble Score"]
+SECONDARY_METRIC_TOOLTIPS = {
+    "Elo": "Elo rating-based strength estimate used as a secondary cross-check.",
+    "Adj Pyth": "Adjusted Pythagorean expectation from scored results.",
+    "Win %": "Raw win percentage; useful context but less schedule-aware.",
+    "Ensemble Score": "Composite score that blends multiple secondary models.",
+}
+
 METRIC_LENS_OPTIONS = [
     "BCAR",
     "Elo",
@@ -630,9 +639,10 @@ def render_dashboard_controls():
         st.session_state["dashboard_time_window"] = "Last 4 weeks"
         track_ui_event("filter_usage", key="dashboard_reset_defaults", value="clicked")
         _sync_dashboard_timeframe_query_params()
-    with st.expander("View secondary metrics", expanded=False):
-        track_ui_event("view_secondary_metrics_expansion", state="rendered")
-        st.caption("Secondary metrics are hidden by default to keep BCAR as the primary public reading.")
+    with st.expander("See all metrics", expanded=False):
+        track_ui_event("metrics_expand_rendered", state="rendered")
+        track_ui_event("metrics_expand_opened", opened=True) if st.session_state.get("dashboard_metrics_expanded") else None
+        st.caption("Secondary metrics are shown for context only and should not be treated as equally weighted with BCAR.")
         trend_top_n = st.slider("Trend teams shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_trend_top_n")
         movement_top_n = st.slider("Movement rows shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_movement_top_n")
     return trend_top_n, movement_top_n
@@ -2489,10 +2499,18 @@ def main():
         rank_table = dashboard_vm["current_rank_table"].copy()
         if "team" in rank_table.columns:
             rank_table = rank_table.rename(columns={"team": "Team"})
-        visible_cols = [c for c in ["Rank", "Team", "BCAR", "Elo", "Adj Pyth", "Win %", "Ensemble Score"] if c in rank_table.columns]
-        if not visible_cols:
-            visible_cols = rank_table.columns.tolist()
-        st.dataframe(rank_table[visible_cols], use_container_width=True, hide_index=True)
+        primary_cols = [c for c in ["Rank", "Team", "BCAR"] if c in rank_table.columns]
+        if not primary_cols:
+            primary_cols = rank_table.columns.tolist()
+        st.dataframe(rank_table[primary_cols], use_container_width=True, hide_index=True)
+        with st.expander("See all metrics", expanded=False):
+            track_ui_event("metrics_expand_opened", surface="rankings")
+            secondary_cols = [c for c in SECONDARY_METRIC_ORDER if c in rank_table.columns]
+            if secondary_cols:
+                st.dataframe(rank_table[[*primary_cols, *secondary_cols]], use_container_width=True, hide_index=True)
+                st.caption("Secondary metrics are context signals; BCAR remains the primary ranking metric.")
+                for metric_name in secondary_cols:
+                    st.caption(f"• {metric_name}: {SECONDARY_METRIC_TOOLTIPS.get(metric_name, 'Secondary context metric.')}")
         return
 
     section_defaults = {
@@ -2532,17 +2550,31 @@ def main():
 
     if selected_section == "Profile":
         st.subheader(f"Profile: {te}")
-        st.table(pd.DataFrame.from_dict({
+        primary_profile = {
             'GPG For':f"{stats[te]['gf']/stats[te]['games']:.2f}",
             'GPG Against':f"{stats[te]['ga']/stats[te]['games']:.2f}",
             'GD/Game':f"{(stats[te]['gf']-stats[te]['ga'])/stats[te]['games']:.2f}",
-            'Win %':f"{stats[te]['win_pct']:.3f}",
-            'SOS':f"{sos[te]:.3f}",
-            'Ensemble (Primary)':r_avg,
-            'Rank Win%':ranks['win'],'Rank Pythag':ranks['py'],
-            'Rank Adj':ranks['adj'],'Rank Elo':ranks['elo'],
+            'BCAR (Primary)': f"{bcar_scores.get(te, 0.0):.3f}",
             'Imputed Share': f"{(team_imputation[te]['imputed']/team_imputation[te]['games'] if team_imputation[te]['games'] else 0):.1%}"
-        },orient='index',columns=['Value']))
+        }
+        st.table(pd.DataFrame.from_dict(primary_profile, orient='index', columns=['Value']))
+        with st.expander("See all metrics", expanded=False):
+            track_ui_event("metrics_expand_opened", surface="profile")
+            secondary_profile = {
+                'Win %':f"{stats[te]['win_pct']:.3f}",
+                'SOS':f"{sos[te]:.3f}",
+                'Ensemble Score':r_avg,
+                'Rank Elo':ranks['elo'],
+                'Rank Adj Pyth':ranks['adj'],
+                'Rank Pythag':ranks['py'],
+                'Rank Win %':ranks['win'],
+            }
+            st.table(pd.DataFrame.from_dict(secondary_profile, orient='index', columns=['Value']))
+            st.caption("Secondary profile metrics are directional context and are not equally weighted with BCAR.")
+            st.caption("• Elo: Elo rating-based strength estimate used as a secondary cross-check.")
+            st.caption("• Adj Pyth: Adjusted Pythagorean expectation from scored results.")
+            st.caption("• Win %: Raw win percentage; useful context but less schedule-aware.")
+            st.caption("• Ensemble Score: Composite score that blends multiple secondary models.")
         team_conf_row = primary_payload["table"].set_index("Team").loc[te] if te in set(primary_payload["table"]["Team"]) else None
         if team_conf_row is not None:
             st.caption(
