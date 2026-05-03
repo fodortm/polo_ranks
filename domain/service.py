@@ -125,6 +125,30 @@ def _clamp_0_100(value: float) -> float:
     return max(0.0, min(100.0, float(value)))
 
 
+def _trend_bucket(recent_form_score: float) -> str:
+    if recent_form_score >= 60:
+        return "rising"
+    if recent_form_score <= 40:
+        return "falling"
+    return "flat"
+
+
+def _build_standing_narrative(team: str, bcar_rank: int | None, bcar_total: int | None, trend_label: str, resume_signal: str, as_of_utc: str) -> str:
+    if bcar_rank is not None and bcar_total is not None and bcar_total > 0:
+        position_sentence = f"{team} is currently #{bcar_rank} in BCAR out of {bcar_total} teams."
+    else:
+        position_sentence = f"{team} has a BCAR profile in progress with position still stabilizing."
+
+    trend_sentence = {
+        "rising": "Recent BCAR direction is rising based on current form and game outcomes.",
+        "flat": "Recent BCAR direction is flat, with no clear week-to-week shift.",
+        "falling": "Recent BCAR direction is falling based on recent outcomes.",
+    }[trend_label]
+
+    resume_sentence = f"Resume signal is {resume_signal}. Data refreshed: {as_of_utc} UTC."
+    return " ".join([position_sentence, trend_sentence, resume_sentence])
+
+
 def build_team_explainer_card(team: str, stats: dict[str, dict[str, Any]], sos: dict[str, float], h2h: dict[tuple[str, str], dict[str, int]], team_imputation: dict[str, dict[str, int]], as_of: datetime | None = None) -> dict[str, Any]:
     team_stats = stats.get(team, {})
     games = int(team_stats.get("games", 0))
@@ -162,7 +186,12 @@ def build_team_explainer_card(team: str, stats: dict[str, dict[str, Any]], sos: 
         if name == "Consistency":
             return "Game-to-game performance has been steady." if value >= 60 else "Performance has been volatile week to week."
         if name == "Recent form":
-            return "Recent form is trending up." if value >= 60 else "Recent form is neutral or down."
+            trend = _trend_bucket(value)
+            if trend == "rising":
+                return "Recent form is rising."
+            if trend == "falling":
+                return "Recent form is falling."
+            return "Recent form is flat."
         return "Coverage is broad enough to trust comparisons." if value >= 60 else "Coverage is thin; treat rank as provisional."
     factors = [
         {"name": "Results quality", "value": round(results_quality, 1)},
@@ -174,4 +203,18 @@ def build_team_explainer_card(team: str, stats: dict[str, dict[str, Any]], sos: 
     for factor in factors:
         factor["summary"] = statement(factor["name"], factor["value"])
     as_of_ts = as_of or datetime.now(timezone.utc)
-    return {"team": team, "factors": factors, "confidence_label": confidence, "recency_label": freshness, "as_of_utc": as_of_ts.isoformat(), "record": f"{wins}-{losses}-{ties}"}
+    trend_label = _trend_bucket(recent_form_score)
+    bcar_rank = team_stats.get("bcar_rank")
+    bcar_total = team_stats.get("bcar_total")
+    resume_signal = "strong" if (results_quality >= 65 and schedule_strength >= 60) else ("developing" if results_quality >= 50 else "mixed")
+    as_of_utc = as_of_ts.isoformat()
+    narrative = _build_standing_narrative(team, bcar_rank, bcar_total, trend_label, resume_signal, as_of_utc)
+    return {
+        "team": team,
+        "factors": factors,
+        "confidence_label": confidence,
+        "recency_label": freshness,
+        "as_of_utc": as_of_utc,
+        "record": f"{wins}-{losses}-{ties}",
+        "standing_narrative": narrative,
+    }
