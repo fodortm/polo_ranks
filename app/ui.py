@@ -89,8 +89,28 @@ def _init_dashboard_timeframe_state():
     st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
 
 
+def _init_dashboard_metric_state():
+    metric_from_url = str(st.query_params.get("metric", DEFAULT_DASHBOARD_METRIC_LENS)).strip()
+    if metric_from_url not in METRIC_LENS_OPTIONS:
+        metric_from_url = DEFAULT_DASHBOARD_METRIC_LENS
+    if "dashboard_metric_lens" not in st.session_state:
+        st.session_state["dashboard_metric_lens"] = metric_from_url
+    elif st.session_state["dashboard_metric_lens"] not in METRIC_LENS_OPTIONS:
+        st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
+
+
 def _sync_dashboard_timeframe_query_params():
     st.query_params["whole_season"] = "1" if st.session_state.get("dashboard_whole_season", False) else "0"
+    st.query_params["metric"] = st.session_state.get("dashboard_metric_lens", DEFAULT_DASHBOARD_METRIC_LENS)
+
+
+def track_ui_event(event_name, **payload):
+    events = st.session_state.setdefault("ui_analytics_events", [])
+    events.append({"event": event_name, "payload": payload, "at": pd.Timestamp.utcnow().isoformat()})
+
+
+def _track_on_change(event_name, state_key):
+    track_ui_event(event_name, key=state_key, value=st.session_state.get(state_key))
 
 
 def _is_admin_user():
@@ -582,19 +602,37 @@ def render_dashboard_header_kpis(kpi, metric_lens, metric_format):
 
 def render_dashboard_controls():
     ctl_a, ctl_b, ctl_c = st.columns(3)
-    ctl_a.checkbox("Top 10 only", key="dashboard_top10_only")
-    ctl_b.checkbox("Whole season", key="dashboard_whole_season")
+    ctl_a.selectbox("Sectional", options=["All Sectionals"], key="dashboard_sectional_selector", on_change=_track_on_change, args=("filter_usage", "dashboard_sectional_selector"))
+    ctl_b.selectbox("Division", options=["All Divisions"], key="dashboard_division_selector", on_change=_track_on_change, args=("filter_usage", "dashboard_division_selector"))
+    ctl_c.checkbox("Whole season", key="dashboard_whole_season", on_change=_track_on_change, args=("filter_usage", "dashboard_whole_season"))
+    st.selectbox(
+        "Timeframe",
+        options=["Last 4 weeks", "All"],
+        key="dashboard_time_window",
+        on_change=_track_on_change,
+        args=("filter_usage", "dashboard_time_window"),
+    )
+    st.session_state["dashboard_whole_season"] = st.session_state["dashboard_time_window"] == "All"
     st.session_state["dashboard_time_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
     _sync_dashboard_timeframe_query_params()
-    ctl_c.selectbox(
+    st.selectbox(
         "Metric lens",
         options=METRIC_LENS_OPTIONS,
         key="dashboard_metric_lens",
         format_func=lambda key: METRIC_OPTION_LABELS.get(key, key),
         help="BCAR is the recommended default for ranking decisions. Secondary methods remain available for cross-checking.",
+        on_change=_track_on_change,
+        args=("metric_switch", "dashboard_metric_lens"),
     )
-    with st.expander("Advanced options", expanded=False):
-        st.caption("Tune advanced chart density controls for trend and movement panels.")
+    if st.button("Reset to BCAR defaults", key="dashboard_reset_defaults"):
+        st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
+        st.session_state["dashboard_whole_season"] = False
+        st.session_state["dashboard_time_window"] = "Last 4 weeks"
+        track_ui_event("filter_usage", key="dashboard_reset_defaults", value="clicked")
+        _sync_dashboard_timeframe_query_params()
+    with st.expander("View secondary metrics", expanded=False):
+        track_ui_event("view_secondary_metrics_expansion", state="rendered")
+        st.caption("Secondary metrics are hidden by default to keep BCAR as the primary public reading.")
         trend_top_n = st.slider("Trend teams shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_trend_top_n")
         movement_top_n = st.slider("Movement rows shown", min_value=4, max_value=25, value=8, step=1, key="dashboard_movement_top_n")
     return trend_top_n, movement_top_n
@@ -2355,8 +2393,7 @@ def main():
         if "dashboard_top10_only" not in st.session_state:
             st.session_state["dashboard_top10_only"] = False
         _init_dashboard_timeframe_state()
-        if "dashboard_metric_lens" not in st.session_state:
-            st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
+        _init_dashboard_metric_state()
         # Backward-compatible cleanup: ignore legacy persona state from prior sessions/links.
         st.session_state.pop("dashboard_persona", None)
 
@@ -2415,55 +2452,15 @@ def main():
             primary_table=primary_payload["table"],
             sos=sos,
         )
-        kpi = dashboard_vm["kpi_payload"]
-        render_dashboard_header_kpis(kpi, metric_lens, metric_format)
-
-        render_spacing("section")
-        b_left, b_right = st.columns([1.2, 1.0])
-        with b_left:
-            render_rank_overview_panel(dashboard_vm, metric_label, metric_format)
-        with b_right:
-            render_trend_panel(dashboard_vm)
-        render_movement_panel(dashboard_vm)
-
-        render_spacing("section")
-        c_left, c_mid, c_right = st.columns([1, 1, 1])
-        with c_left:
-            render_distribution_panel(dashboard_vm)
-        with c_mid:
-            render_offense_defense_panel(dashboard_vm, kpi["top_team"])
-        with c_right:
-            render_trust_imputation_panel(dashboard_vm)
-
-        render_dashboard_metric_charts(stats, adj_vals, elo, sos, min_games_default=int(round(thr)))
-
-        st.subheader("Weekly rank trend")
-        if "dashboard_weekly_metric" not in st.session_state:
-            st.session_state["dashboard_weekly_metric"] = DEFAULT_WEEKLY_TREND_METRIC
-        trend_metric = st.selectbox(
-            "Trend metric",
-            WEEKLY_TREND_OPTIONS,
-            key="dashboard_weekly_metric",
-            format_func=lambda key: WEEKLY_TREND_LABELS.get(key, key),
-            help="BCAR is the recommended/default trend lens; secondary methods are retained for cross-check validation.",
-        )
-        trend_n = st.slider("Teams to show", min_value=5, max_value=max(5, len(dashboard_order)), value=min(12, len(dashboard_order)), key="dashboard_weekly_top_n")
-        if "dashboard_weekly_window" not in st.session_state:
-            st.session_state["dashboard_weekly_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
-        st.session_state["dashboard_weekly_window"] = "All" if st.session_state["dashboard_whole_season"] else "Last 4 weeks"
-        trend_window = st.session_state["dashboard_weekly_window"]
-        st.caption(f"Trend time frame: {trend_window}")
-        weekly_all = compute_weekly_rank_history(DATA_DIR)
-        if not weekly_all.empty:
-            max_week = int(weekly_all["week_num"].max())
-            start_week = max(1, max_week - 3) if trend_window == "Last 4 weeks" else 1
-            pool = weekly_all[weekly_all["week_num"] >= start_week].copy()
-            focus_teams = dashboard_order[:min(trend_n, len(dashboard_order))]
-            pool = pool[pool["team"].isin(focus_teams)]
-            line = alt.Chart(pool).mark_line(point=True).encode(x=alt.X("week_num:Q", title="Week"), y=alt.Y("rank:Q", title="Rank", scale=alt.Scale(reverse=True)), color="team:N", tooltip=["team:N", "week_label:N", "rank:Q"]).properties(height=380)
-            st.altair_chart(line, use_container_width=True)
-        else:
-            st.info("No weekly rank history available.")
+        st.subheader("Public Rankings")
+        st.caption("BCAR — Primary public ranking metric.")
+        rank_table = dashboard_vm["current_rank_table"].copy()
+        if "team" in rank_table.columns:
+            rank_table = rank_table.rename(columns={"team": "Team"})
+        visible_cols = [c for c in ["Rank", "Team", "BCAR", "Elo", "Adj Pyth", "Win %", "Ensemble Score"] if c in rank_table.columns]
+        if not visible_cols:
+            visible_cols = rank_table.columns.tolist()
+        st.dataframe(rank_table[visible_cols], use_container_width=True, hide_index=True)
         return
 
     section_defaults = {
