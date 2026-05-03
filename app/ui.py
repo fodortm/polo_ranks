@@ -1974,7 +1974,7 @@ def build_primary_ranking_payload(teams, model_orders, stats, h2h, sos, team_imp
 
 
 def get_primary_nav_options(is_admin_user):
-    nav_options = ["Rankings"]
+    nav_options = ["Rankings", "Team Profiles/Resume", "Sectionals"]
     if is_admin_user:
         nav_options.append("Admin / Internal")
     return nav_options
@@ -1994,12 +1994,16 @@ def resolve_legacy_public_target(query_params, fallback_team=None):
 
     normalized = legacy_value.lower().replace("_", " ").strip()
     if normalized in {"profile", "team profile", "teams"}:
-        return {"target_nav": "Rankings", "team": fallback_team}
+        return {"target_nav": "Team Profiles/Resume", "team": fallback_team}
     if normalized in {"matchup insights", "matchups", "matchup"}:
-        return {"target_nav": "Rankings", "team": fallback_team}
+        return {"target_nav": "Sectionals", "team": fallback_team}
+    if normalized in {"team profiles/resume", "team profile/resume"}:
+        return {"target_nav": "Team Profiles/Resume", "team": fallback_team}
+    if normalized in {"sectionals"}:
+        return {"target_nav": "Sectionals", "team": fallback_team}
     if normalized.startswith("profile/") or normalized.startswith("team/"):
         team_slug = normalized.split("/", 1)[1].strip()
-        return {"target_nav": "Rankings", "team_slug": team_slug or None}
+        return {"target_nav": "Team Profiles/Resume", "team_slug": team_slug or None}
     return None
 
 
@@ -2049,6 +2053,8 @@ def main():
     nav_options = get_primary_nav_options(is_admin)
     nav_labels = {
         "Rankings": "Rankings",
+        "Team Profiles/Resume": "Team Profiles/Resume",
+        "Sectionals": "Sectionals",
         "Admin / Internal": "Admin",
     }
     if "primary_nav" not in st.session_state or st.session_state["primary_nav"] not in nav_options:
@@ -2578,27 +2584,35 @@ def main():
             st.caption("Public explainer only: internal tuning parameters are intentionally hidden.")
         return
 
+    if current_nav == "Team Profiles/Resume":
+        selected_section = "Profile"
+        st.query_params["section"] = selected_section
+        st.query_params["team"] = team_slug_lookup.get(te, te)
+    elif current_nav == "Sectionals":
+        selected_section = "Sectionals"
+        st.query_params["section"] = selected_section
+        st.query_params["team"] = team_slug_lookup.get(te, te)
+    else:
+        selected_section = None
+
     section_defaults = {
         "Rankings": "BCAR",
-        "Team Profile": "Profile",
-        "Matchup Insights": "Matchup Insights",
         "Admin / Internal": "Sectionals",
     }
-    all_sections = ["BCAR", "Profile", "Matchup Insights", "Sectionals", "Win%", "Pythag", "AdjPyth", "Elo", "Hybrid", "Ensemble (Primary)"]
+    all_sections = ["BCAR", "Profile", "Sectionals", "Win%", "Pythag", "AdjPyth", "Elo", "Hybrid", "Ensemble (Primary)"]
     available_sections = {
         "Rankings": ["BCAR"],
-        "Team Profile": ["Profile"],
-        "Matchup Insights": ["Matchup Insights"],
         "Admin / Internal": ["Sectionals", "Win%", "Pythag", "AdjPyth", "Elo", "Hybrid", "Ensemble (Primary)"],
     }.get(current_nav, all_sections)
-    default_section = section_defaults.get(current_nav, "BCAR")
-    if "content_section" not in st.session_state or st.session_state["content_section"] not in available_sections:
-        st.session_state["content_section"] = default_section if default_section in available_sections else available_sections[0]
-    st.markdown("### Content")
-    st.radio("View", options=available_sections, horizontal=True, key="content_section")
-    selected_section = st.session_state["content_section"]
-    st.query_params["section"] = selected_section
-    st.query_params["team"] = team_slug_lookup.get(te, te)
+    if selected_section is None:
+        default_section = section_defaults.get(current_nav, "BCAR")
+        if "content_section" not in st.session_state or st.session_state["content_section"] not in available_sections:
+            st.session_state["content_section"] = default_section if default_section in available_sections else available_sections[0]
+        st.markdown("### Content")
+        st.radio("View", options=available_sections, horizontal=True, key="content_section")
+        selected_section = st.session_state["content_section"]
+        st.query_params["section"] = selected_section
+        st.query_params["team"] = team_slug_lookup.get(te, te)
     table_sort_mode = st.session_state.get("rank_table_sort_mode", DEFAULT_SORT_MODE)
     if table_sort_mode in LEGACY_METRIC_DEFAULTS or table_sort_mode == "Ensemble rank":
         table_sort_mode = DEFAULT_SORT_MODE
