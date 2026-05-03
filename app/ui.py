@@ -1952,17 +1952,41 @@ def build_primary_ranking_payload(teams, model_orders, stats, h2h, sos, team_imp
     }
 
 
+def get_primary_nav_options(is_admin_user):
+    nav_options = ["Rankings"]
+    if is_admin_user:
+        nav_options.append("Admin / Internal")
+    return nav_options
+
+
+def resolve_legacy_public_target(query_params, fallback_team=None):
+    legacy_value = ""
+    for key in ("tab", "section", "content_section", "primary_nav", "nav"):
+        raw = query_params.get(key)
+        if raw is None:
+            continue
+        legacy_value = str(raw).strip()
+        if legacy_value:
+            break
+    if not legacy_value:
+        return None
+
+    normalized = legacy_value.lower().replace("_", " ").strip()
+    if normalized in {"profile", "team profile", "teams"}:
+        return {"target_nav": "Rankings", "team": fallback_team}
+    if normalized in {"matchup insights", "matchups", "matchup"}:
+        return {"target_nav": "Rankings", "team": fallback_team}
+    return None
+
+
 def main():
     st.set_page_config(page_title="Polo Dashboard", layout="wide")
     is_deep_dive = str(st.query_params.get("debug_sectionals", "0")).strip().lower() in {"1", "true", "yes", "y"}
 
-    nav_options = ["Rankings", "Team Profile", "Matchup Insights"]
-    if _is_admin_user():
-        nav_options.append("Admin / Internal")
+    is_admin = _is_admin_user()
+    nav_options = get_primary_nav_options(is_admin)
     nav_labels = {
         "Rankings": "Rankings",
-        "Team Profile": "Teams",
-        "Matchup Insights": "Matchups",
         "Admin / Internal": "Admin",
     }
     if "primary_nav" not in st.session_state or st.session_state["primary_nav"] not in nav_options:
@@ -2386,7 +2410,15 @@ def main():
     ranks['elo']  = elo_ord.index(te)+1 if te in elo_ord else None
     ranks_list   = [v for v in ranks.values() if v]
     r_avg = round(sum(ranks_list)/len(ranks_list),2) if ranks_list else None
-    
+    legacy_target = resolve_legacy_public_target(st.query_params, fallback_team=te)
+    if legacy_target:
+        st.session_state["primary_nav"] = legacy_target["target_nav"]
+        if legacy_target.get("team"):
+            st.session_state["selected_team"] = legacy_target["team"]
+            st.query_params["team"] = legacy_target["team"]
+        st.query_params["primary_nav"] = legacy_target["target_nav"]
+        st.query_params["redirected_from"] = "legacy_public_tab"
+        st.rerun()
 
     # Tabs & content
     if current_nav == "Rankings":
