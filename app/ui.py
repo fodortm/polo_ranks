@@ -12,7 +12,7 @@ import altair as alt
 
 from domain.parsing import discover_score_files, is_skippable_line, load_parser_config, normalize_team_name, parse_game_line_anchored
 from domain.hybrid_ranking import HybridRankingConfig, ScheduleAdjustedGoalStrengthRanker
-from domain.service import build_team_resume
+from domain.service import build_team_resume, build_team_explainer_card
 
 # ---------------- Constants ---------------- #
 SCORES_CSV = "scores.csv"
@@ -171,6 +171,15 @@ def render_kpi_card(container, label, value, delta=None, caption=None):
     if caption:
         container.caption(caption)
 
+
+
+def render_team_explainer_card(card):
+    st.caption(f"Ranking explainer · {card['team']} · As of {card['as_of_utc']} UTC")
+    c1, c2 = st.columns(2)
+    c1.metric("Confidence", card["confidence_label"])
+    c2.metric("Recency", card["recency_label"])
+    explainer_df = pd.DataFrame(card["factors"]).rename(columns={"name": "Factor", "value": "Score", "summary": "What this means"})
+    st.dataframe(explainer_df[["Factor", "Score", "What this means"]], use_container_width=True, hide_index=True)
 def apply_chart_theme(chart):
     return chart.configure_axis(
         grid=True, tickColor="#D1D5DB", labelColor="#111827", titleColor="#111827"
@@ -2511,6 +2520,9 @@ def main():
                 st.caption("Secondary metrics are context signals; BCAR remains the primary ranking metric.")
                 for metric_name in secondary_cols:
                     st.caption(f"• {metric_name}: {SECONDARY_METRIC_TOOLTIPS.get(metric_name, 'Secondary context metric.')}")
+        with st.expander(f"Why #{primary_payload['ordered_teams'].index(te)+1} {te}?", expanded=False):
+            render_team_explainer_card(build_team_explainer_card(te, stats, sos, h2h, team_imputation))
+            st.caption("Public explainer only: internal tuning parameters are intentionally hidden.")
         return
 
     section_defaults = {
@@ -2580,6 +2592,8 @@ def main():
             st.caption(
                 f"Confidence context — Games: {team_conf_row['Games Confidence']:.1f}/100 · SOS: {team_conf_row['SOS Confidence']:.1f}/100 · Composite: {team_conf_row['Composite Confidence']:.1f}/100 ({team_conf_row['Confidence Tier']})"
             )
+        profile_card = build_team_explainer_card(te, stats, sos, h2h, team_imputation)
+        render_team_explainer_card(profile_card)
         st.caption(f"Shared context: {te} vs {opp}")
         st.markdown("**Team resume**")
         resume_summary = team_resume["summary"]

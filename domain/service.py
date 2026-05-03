@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from typing import Any
+from datetime import datetime, timezone
 
 
 def _quality_score(team: str, bcar_scores: dict[str, float], stats: dict[str, dict[str, Any]], sos: dict[str, float]) -> float:
@@ -94,4 +95,80 @@ def build_team_resume(team, games_df, bcar_scores, stats, h2h, sos):
         "best_losses": best_losses,
         "worst_wins": worst_wins,
         "summary": summary,
+    }
+
+
+def _clamp_0_100(value: float) -> float:
+    return max(0.0, min(100.0, float(value)))
+
+
+def build_team_explainer_card(team: str, stats: dict[str, dict[str, Any]], sos: dict[str, float], h2h: dict[tuple[str, str], dict[str, int]], team_imputation: dict[str, dict[str, int]], as_of: datetime | None = None) -> dict[str, Any]:
+    """Build public-safe explanation factors for ranking context.
+
+    Factors intentionally avoid exposing internal weight/tuning parameters.
+    """
+    team_stats = stats.get(team, {})
+    games = int(team_stats.get("games", 0))
+    wins = int(team_stats.get("wins", 0))
+    losses = int(team_stats.get("losses", 0))
+    ties = int(team_stats.get("ties", 0))
+
+    opponents = [opp for opp in stats if opp != team]
+    opp_games = [h2h.get((team, opp), {"games": 0}).get("games", 0) for opp in opponents]
+    unique_played = sum(1 for g in opp_games if g > 0)
+    max_unique = max(len(opponents), 1)
+
+    imp_games = int(team_imputation.get(team, {}).get("imputed", 0))
+    total_imp_games = int(team_imputation.get(team, {}).get("games", games))
+    imputation_rate = (imp_games / total_imp_games) if total_imp_games else 0.0
+
+    results_quality = _clamp_0_100(100.0 * float(team_stats.get("win_pct", 0.0)))
+    schedule_strength = _clamp_0_100(100.0 * float(sos.get(team, 0.0)))
+    consistency = _clamp_0_100(100.0 * (1.0 - min(1.0, abs(float(team_stats.get("gf", 0)) - float(team_stats.get("ga", 0))) / max(games * 6.0, 1.0))))
+
+    recent_window = min(5, games)
+    recent_form_score = _clamp_0_100(50.0 + (wins - losses) * (50.0 / max(recent_window, 1))) if games else 50.0
+    data_coverage = _clamp_0_100(100.0 * ((0.6 * (unique_played / max_unique)) + (0.4 * (1.0 - imputation_rate))))
+
+    confidence = "High"
+    if games < 4 or unique_played < 3 or imputation_rate > 0.35:
+        confidence = "Low"
+    elif games < 7 or unique_played < 5 or imputation_rate > 0.20:
+        confidence = "Medium"
+
+    freshness = "Fresh"
+    if games <= 2:
+        freshness = "Early sample"
+    elif games <= 5:
+        freshness = "Building sample"
+
+    def statement(name: str, value: float) -> str:
+        if name == "Results quality":
+            return "Strong results against played opponents." if value >= 65 else "Mixed results; rank may swing with next games."
+        if name == "Schedule strength":
+            return "Faced a challenging schedule." if value >= 60 else "Schedule has been softer so far."
+        if name == "Consistency":
+            return "Game-to-game performance has been steady." if value >= 60 else "Performance has been volatile week to week."
+        if name == "Recent form":
+            return "Recent form is trending up." if value >= 60 else "Recent form is neutral or down."
+        return "Coverage is broad enough to trust comparisons." if value >= 60 else "Coverage is thin; treat rank as provisional."
+
+    factors = [
+        {"name": "Results quality", "value": round(results_quality, 1)},
+        {"name": "Schedule strength", "value": round(schedule_strength, 1)},
+        {"name": "Consistency", "value": round(consistency, 1)},
+        {"name": "Recent form", "value": round(recent_form_score, 1)},
+        {"name": "Data coverage", "value": round(data_coverage, 1)},
+    ]
+    for factor in factors:
+        factor["summary"] = statement(factor["name"], factor["value"])
+
+    as_of_ts = as_of or datetime.now(timezone.utc)
+    return {
+        "team": team,
+        "factors": factors,
+        "confidence_label": confidence,
+        "recency_label": freshness,
+        "as_of_utc": as_of_ts.isoformat(),
+        "record": f"{wins}-{losses}-{ties}",
     }
