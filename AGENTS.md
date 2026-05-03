@@ -13,6 +13,34 @@ Instructions for coding agents working in this repository.
 - `tests/`: unit tests and fixture data.
 - `rank_polo.py`: likely CLI/script entrypoint.
 
+## Public IA contract (non-optional primary surfaces)
+Any UI/navigation change must preserve these top-level public surfaces:
+- Rankings (BCAR-first)
+- Team Profile/Resume
+- Sectionals Overall
+
+These surfaces are part of the public information architecture contract and must remain discoverable from primary navigation.
+
+## UI simplification PR acceptance criteria (non-negotiable)
+- Required tabs/pages listed in the Public IA contract remain present.
+- Sectionals detail tabs may only be removed at the sub-navigation level; do not remove `Sectionals Overall`.
+- Initial app load must complete without Streamlit exceptions.
+
+## UI change evidence requirements
+For any PR that changes navigation, tab structure, or page layout hierarchy:
+- Include before/after screenshots for desktop.
+- Include before/after screenshots for mobile.
+
+If a screenshot cannot be produced in CI, capture locally and attach to the PR.
+
+## Pre-release lightweight UI smoke checklist
+Execute and record the following before release:
+- `pytest tests/test_ui_smoke_module.py`
+- `pytest tests/test_ui_navigation_module.py`
+- Launch app once and verify initial page load has no Streamlit exceptions.
+- Manual nav check: verify access to Rankings (BCAR-first), Team Profile/Resume, and Sectionals Overall.
+- Manual nav check: if sectionals detail tabs were simplified, confirm only sub-navigation detail tabs changed.
+
 ## Working style
 - Read before editing: inspect impacted module(s) and related tests first.
 - Keep functions deterministic and side-effect-light in `domain/`.
