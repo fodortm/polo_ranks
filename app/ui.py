@@ -178,6 +178,8 @@ def render_team_explainer_card(card):
     c1, c2 = st.columns(2)
     c1.metric("Confidence", card["confidence_label"])
     c2.metric("Recency", card["recency_label"])
+    if card.get("standing_narrative"):
+        st.info(card["standing_narrative"])
     explainer_df = pd.DataFrame(card["factors"]).rename(columns={"name": "Factor", "value": "Score", "summary": "What this means"})
     st.dataframe(explainer_df[["Factor", "Score", "What this means"]], use_container_width=True, hide_index=True)
 def apply_chart_theme(chart):
