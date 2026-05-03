@@ -2463,16 +2463,33 @@ def main():
         selector_sort_mode, teams, stats, sos, primary_payload["table"], elo=elo, bcar_table=bcar_table, adj_vals=adj_vals, pyth_vals=py
     )
     default_team_index = selector_order.index(default_team) if default_team in selector_order else 0
-    if "selected_team" not in st.session_state or st.session_state["selected_team"] not in teams:
-        st.session_state["selected_team"] = selector_order[default_team_index]
+    if "selected_team_route_target" not in st.session_state:
+        st.session_state["selected_team_route_target"] = None
     team_slug_lookup = build_team_slug_lookup(teams)
     team_slug_reverse = {slug: team for team, slug in team_slug_lookup.items()}
     team_from_url = str(st.query_params.get("team", "")).strip()
+
+    valid_team_from_url = None
     if team_from_url in teams:
-        st.session_state["selected_team"] = team_from_url
+        valid_team_from_url = team_from_url
     elif team_from_url in team_slug_reverse:
-        st.session_state["selected_team"] = team_slug_reverse[team_from_url]
-    te = st.sidebar.selectbox("Select Team", selector_order, key="selected_team")
+        valid_team_from_url = team_slug_reverse[team_from_url]
+    if valid_team_from_url:
+        st.session_state["selected_team_route_target"] = valid_team_from_url
+
+    route_target_team = st.session_state.get("selected_team_route_target")
+    widget_default_team = selector_order[default_team_index]
+    if route_target_team in selector_order:
+        widget_default_team = route_target_team
+    elif st.session_state.get("selected_team_widget") in selector_order:
+        widget_default_team = st.session_state["selected_team_widget"]
+    st.session_state["selected_team_widget"] = widget_default_team
+
+    st.sidebar.selectbox("Select Team", selector_order, key="selected_team_widget")
+    te = st.session_state.get("selected_team_widget", widget_default_team)
+    st.session_state["selected_team"] = te
+    if route_target_team in selector_order:
+        st.session_state["selected_team_route_target"] = None
     compare_teams = [t for t in selector_order if t != te]
     if compare_teams:
         default_compare_index = compare_teams.index(default_compare_team) if default_compare_team in compare_teams else 0
@@ -2501,7 +2518,7 @@ def main():
         if legacy_target.get("team_slug") and legacy_target["team_slug"] in team_slug_reverse:
             legacy_target["team"] = team_slug_reverse[legacy_target["team_slug"]]
         if legacy_target.get("team"):
-            st.session_state["selected_team"] = legacy_target["team"]
+            st.session_state["selected_team_route_target"] = legacy_target["team"]
             st.query_params["team"] = legacy_target["team"]
         st.query_params["primary_nav"] = legacy_target["target_nav"]
         st.query_params["redirected_from"] = "legacy_public_tab"
