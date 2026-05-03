@@ -1997,7 +1997,48 @@ def resolve_legacy_public_target(query_params, fallback_team=None):
         return {"target_nav": "Rankings", "team": fallback_team}
     if normalized in {"matchup insights", "matchups", "matchup"}:
         return {"target_nav": "Rankings", "team": fallback_team}
+    if normalized.startswith("profile/") or normalized.startswith("team/"):
+        team_slug = normalized.split("/", 1)[1].strip()
+        return {"target_nav": "Rankings", "team_slug": team_slug or None}
     return None
+
+
+def slugify_team_name(team_name):
+    normalized = re.sub(r"[^a-z0-9]+", "-", str(team_name).strip().lower()).strip("-")
+    return normalized or "team"
+
+
+def build_team_slug_lookup(teams):
+    slug_lookup = {}
+    reverse_lookup = {}
+    for team in sorted(teams):
+        base_slug = slugify_team_name(team)
+        slug = base_slug
+        suffix = 2
+        while slug in reverse_lookup and reverse_lookup[slug] != team:
+            slug = f"{base_slug}-{suffix}"
+            suffix += 1
+        slug_lookup[team] = slug
+        reverse_lookup[slug] = team
+    return slug_lookup
+
+
+def build_team_canonical_path(team_slug, section="profile", timeframe=None):
+    section_slug = str(section or "profile").strip().lower().replace(" ", "-")
+    path = f"/teams/{team_slug}/{section_slug}"
+    if timeframe:
+        path = f"{path}?timeframe={timeframe}"
+    return path
+
+
+def build_profile_share_metadata(team, rank, key_signal, summary, canonical_url):
+    return {
+        "title": f"{team} Polo Profile · Rank #{rank}",
+        "summary": summary,
+        "key_rank_signal": key_signal,
+        "canonical_url": canonical_url,
+        "share_text": f"{team} is ranked #{rank}. Key signal: {key_signal}. {canonical_url}",
+    }
 
 
 def main():
@@ -2408,6 +2449,13 @@ def main():
     default_team_index = selector_order.index(default_team) if default_team in selector_order else 0
     if "selected_team" not in st.session_state or st.session_state["selected_team"] not in teams:
         st.session_state["selected_team"] = selector_order[default_team_index]
+    team_slug_lookup = build_team_slug_lookup(teams)
+    team_slug_reverse = {slug: team for team, slug in team_slug_lookup.items()}
+    team_from_url = str(st.query_params.get("team", "")).strip()
+    if team_from_url in teams:
+        st.session_state["selected_team"] = team_from_url
+    elif team_from_url in team_slug_reverse:
+        st.session_state["selected_team"] = team_slug_reverse[team_from_url]
     te = st.sidebar.selectbox("Select Team", selector_order, key="selected_team")
     compare_teams = [t for t in selector_order if t != te]
     if compare_teams:
@@ -2434,6 +2482,8 @@ def main():
     legacy_target = resolve_legacy_public_target(st.query_params, fallback_team=te)
     if legacy_target:
         st.session_state["primary_nav"] = legacy_target["target_nav"]
+        if legacy_target.get("team_slug") and legacy_target["team_slug"] in team_slug_reverse:
+            legacy_target["team"] = team_slug_reverse[legacy_target["team_slug"]]
         if legacy_target.get("team"):
             st.session_state["selected_team"] = legacy_target["team"]
             st.query_params["team"] = legacy_target["team"]
@@ -2460,6 +2510,7 @@ def main():
             st.session_state["dashboard_metric_lens"] = DEFAULT_DASHBOARD_METRIC_LENS
 
         trend_top_n, movement_top_n = render_dashboard_controls()
+        st.query_params["section"] = "rankings"
 
         metric_lens = st.session_state["dashboard_metric_lens"]
         if metric_lens == "BCAR":
@@ -2546,6 +2597,8 @@ def main():
     st.markdown("### Content")
     st.radio("View", options=available_sections, horizontal=True, key="content_section")
     selected_section = st.session_state["content_section"]
+    st.query_params["section"] = selected_section
+    st.query_params["team"] = team_slug_lookup.get(te, te)
     table_sort_mode = st.session_state.get("rank_table_sort_mode", DEFAULT_SORT_MODE)
     if table_sort_mode in LEGACY_METRIC_DEFAULTS or table_sort_mode == "Ensemble rank":
         table_sort_mode = DEFAULT_SORT_MODE
@@ -2564,6 +2617,28 @@ def main():
 
     if selected_section == "Profile":
         st.subheader(f"Profile: {te}")
+        team_rank = primary_payload["ordered_teams"].index(te) + 1 if te in primary_payload["ordered_teams"] else "-"
+        canonical_path = build_team_canonical_path(
+            team_slug_lookup.get(te, slugify_team_name(te)),
+            section="profile",
+            timeframe="all" if st.session_state.get("dashboard_whole_season") else "last-4-weeks",
+        )
+        share_meta = build_profile_share_metadata(
+            te,
+            team_rank,
+            f"BCAR {bcar_scores.get(te, 0.0):.3f}",
+            f"{te} profile snapshot with BCAR, resume context, and confidence tiers.",
+            canonical_path,
+        )
+        st.caption(f"Canonical URL: {share_meta['canonical_url']}")
+        st.caption(f"Share preview: {share_meta['title']} · {share_meta['summary']} · {share_meta['key_rank_signal']}")
+        st.code(share_meta["share_text"], language="text")
+        st.download_button(
+            "Copy share text (mobile-friendly)",
+            data=share_meta["share_text"],
+            file_name=f"{team_slug_lookup.get(te, 'team')}-share.txt",
+            mime="text/plain",
+        )
         primary_profile = {
             'GPG For':f"{stats[te]['gf']/stats[te]['games']:.2f}",
             'GPG Against':f"{stats[te]['ga']/stats[te]['games']:.2f}",
